@@ -23,7 +23,7 @@
   "navigation": [
     {
       "group": "Overview",
-      "pages": ["introduction", "architecture", "cost-savings", "quickstart"]
+      "pages": ["introduction", "architecture", "cost-savings", "quickstart", "Abdullah"]
     },
     {
       "group": "Monitoring",
@@ -50,6 +50,7 @@
       "pages": [
         "apis/overview",
         "apis/api-gateway",
+        "apis/apisix-k8s",
         "apis/dotnet-api",
         "apis/web-api"
       ]

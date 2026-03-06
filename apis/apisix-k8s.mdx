@@ -1,0 +1,295 @@
+---
+title: "APISIX on Kubernetes + Redis"
+description: "Apache APISIX API Gateway deployed on k3s with Redis caching, rate limiting, Dashboard UI, and smoke tests."
+---
+
+# Apache APISIX on Kubernetes with Redis
+
+**Apache APISIX** is a high-performance, cloud-native API gateway built on Nginx + LuaJIT. Unlike plain Nginx, APISIX has a live Admin API — you add routes, plugins, and upstreams at runtime with no reloads and no restarts.
+
+## Architecture
+
+```
+Browser / curl
+  │
+  ├──► Dashboard UI  :30900   ← manage routes & plugins visually
+  │
+  ▼
+┌──────────────────────────────────┐
+│  APISIX Gateway  :30080          │  ← proxy (all client traffic)
+│  + Redis cache Lua plugin        │  ← checks Redis before hitting upstream
+│  + rate-limit plugin             │  ← counts per-IP in Redis
+└───────────┬──────────────────────┘
+            │
+      ┌─────┴──────┐
+      │            │
+    Redis        etcd
+  (cache +      (config
+  rate limit)    store)
+      │            │
+      └─────┬──────┘
+            │
+   ┌────────┴────────┐
+   │                 │
+dotnet-api        web-api
+ :5050             :8888
+```
+
+| Component | Role | NodePort |
+|---|---|---|
+| **APISIX Gateway** | Proxies all traffic, runs plugins | `30080` |
+| **APISIX Admin API** | Configure routes/upstreams at runtime | `30180` |
+| **APISIX Dashboard** | Web UI — manage everything visually | `30900` |
+| **Prometheus Metrics** | Per-route metrics scraped by Prometheus | `30091` |
+| **Redis** | Cache + rate-limit counter store | cluster-internal |
+| **etcd** | APISIX config store (watched live) | cluster-internal |
+
+---
+
+## Access Points
+
+| What | URL |
+|---|---|
+| **Gateway** | `http://109.199.120.120:30080` |
+| **Admin API** | `http://109.199.120.120:30180` |
+| **Dashboard UI** | `http://109.199.120.120:30900` |
+| **Metrics** | `http://109.199.120.120:30091/apisix/prometheus/metrics` |
+
+**Dashboard login:** `admin` / `coderz123`
+
+---
+
+## File Structure
+
+All manifests live in `/opt/coderz/k8s/apisix/`:
+
+```
+k8s/apisix/
+├── 00-namespace.yaml          # namespace: apisix
+├── 01-redis.yaml              # Redis deployment + service
+├── 02-etcd.yaml               # etcd deployment + service + configmap
+├── 03-apisix-configmap.yaml   # APISIX config.yaml
+├── 04-apisix.yaml             # APISIX deployment + NodePort services
+├── 05-redis-exporter.yaml     # Redis Prometheus exporter
+├── 06-dashboard.yaml          # APISIX Dashboard UI
+├── 07-smoke-test-job.yaml     # Automated smoke test Job
+├── configure-routes.py        # Python script — registers routes via Admin API
+└── deploy.sh                  # One-command full deploy
+```
+
+---
+
+## Deploy
+
+```bash
+cd /opt/coderz/k8s/apisix
+bash deploy.sh
+```
+
+This will:
+1. Apply all manifests in order
+2. Wait for every pod to be ready
+3. Run `configure-routes.py` to register upstreams and routes via the Admin API
+4. Print all access URLs
+
+Expected final output:
+
+```
+╔══════════════════════════════════════════════════════╗
+║  Access Points                                       ║
+╠══════════════════════════════════════════════════════╣
+║  Gateway    http://109.199.120.120:30080             ║
+║  Admin API  http://109.199.120.120:30180             ║
+║  Dashboard  http://109.199.120.120:30900             ║
+║  Metrics    http://109.199.120.120:30091/apisix/...  ║
+╚══════════════════════════════════════════════════════╝
+
+Dashboard login: admin / coderz123
+```
+
+---
+
+## Routes Configured
+
+`configure-routes.py` registers these routes automatically:
+
+| Route | Upstream | Cache |
+|---|---|---|
+| `GET /dotnet/*` | `.NET API :5050` | Redis (1 hour TTL) |
+| `GET /webapi/*` | `Web API :8888` | Redis (1 hour TTL) |
+| `GET /web/*` | `coderz-web k3s service` | Redis (1 hour TTL) |
+| `GET /cache/keys` | — | Lists all Redis cache keys |
+
+### Global Plugins (on every route)
+
+| Plugin | What it does |
+|---|---|
+| `loki-logger` | Sends structured JSON access logs to Loki |
+| `prometheus` | Per-route metrics exposed on `:30091` |
+| `request-id` | Injects `X-Request-Id` on every request and response |
+
+### Per-Route Plugins
+
+| Plugin | What it does |
+|---|---|
+| `serverless-pre-function` | Checks Redis before proxying — returns cached response on HIT |
+| `serverless-post-function` | Stores upstream 200 responses in Redis (TTL 1 hour) |
+| `response-rewrite` | Adds `X-Gateway: APISIX` and `X-Cache-Backend: Redis` headers |
+| `cors` | Opens CORS for all origins |
+
+---
+
+## Redis Cache Behavior
+
+```
+Request → APISIX pre-function Lua
+               │
+        Check Redis key
+         "cache:GET:/dotnet/items"
+               │
+        ┌──────┴──────┐
+        │             │
+       HIT           MISS
+        │             │
+  Return cached   Forward to upstream
+  response        → Store 200 response in Redis
+  (< 1ms)         → Return to client
+  Works even if   (~50–500ms)
+  backend is DOWN
+```
+
+Cache key format: `cache:<METHOD>:<URI>`
+
+**Inspect live cache:**
+
+```bash
+# List all cached keys + TTL
+curl http://109.199.120.120:30080/cache/keys
+
+# Output:
+# {
+#   "total": 3,
+#   "keys": [
+#     {"key": "cache:GET:/dotnet/api/items", "ttl": 3412},
+#     {"key": "cache:GET:/webapi/products",  "ttl": 2891}
+#   ]
+# }
+```
+
+---
+
+## Dashboard UI
+
+Open `http://109.199.120.120:30900` and log in with `admin` / `coderz123`.
+
+From the Dashboard you can:
+
+| Section | What you can do |
+|---|---|
+| **Route** | Create/edit routes, attach plugins, set URI patterns |
+| **Upstream** | Add backend services, configure load balancing |
+| **Service** | Reusable upstream + plugin bundles |
+| **Consumer** | Create API key or JWT users with per-user rate limits |
+| **Plugin** | Enable/disable plugins globally or per-route |
+| **SSL** | Upload TLS certificates |
+
+No curl or kubectl required — all changes apply instantly via the Admin API.
+
+---
+
+## Smoke Tests
+
+### Run the test job
+
+```bash
+kubectl apply -f /opt/coderz/k8s/apisix/07-smoke-test-job.yaml
+kubectl logs -f job/apisix-smoke-test -n apisix
+```
+
+### What it tests
+
+| Test | Checks |
+|---|---|
+| Admin API reachable | `GET /apisix/admin/routes` returns 200 |
+| Route registration | `PUT /routes/999` returns 200 or 201 |
+| Proxy request | Request through gateway returns 200 |
+| Custom headers | `X-Gateway: APISIX` header present |
+| Rate limiting | 429 fires after 5 requests in 60s window |
+| Cache inspector | `GET /cache/keys` returns 200 |
+| Prometheus metrics | Metrics endpoint returns 200 |
+
+### Expected output
+
+```
+============================================
+ APISIX Smoke Tests
+============================================
+
+Test 1: Admin API reachable
+  PASS: Admin API returns 200
+
+Test 2: Register test route
+  PASS: Route registered (200 or 201)
+
+Test 3: Proxy request through gateway
+  PASS: Proxy request returns 200
+
+Test 4: Custom header X-Gateway injected
+  PASS: X-Gateway: APISIX header present
+
+Test 5: Rate limiting (5 req limit)
+  PASS: rate limiter fired (3 × 429)
+
+Test 6: Cache inspector endpoint
+  PASS: Cache inspector returns 200
+
+Test 7: Prometheus metrics endpoint
+  PASS: Metrics endpoint returns 200
+
+============================================
+ Results: 7 passed, 0 failed
+============================================
+```
+
+### Cleanup test job
+
+```bash
+kubectl delete job apisix-smoke-test -n apisix
+```
+
+---
+
+## Manual Tests
+
+```bash
+# First request — cache MISS (goes to upstream)
+curl -i http://109.199.120.120:30080/dotnet/api/items
+# X-Cache-Status: MISS
+# X-Gateway: APISIX
+
+# Second request — cache HIT (served from Redis, < 1ms)
+curl -i http://109.199.120.120:30080/dotnet/api/items
+# X-Cache-Status: HIT
+
+# Inspect what's cached in Redis
+curl http://109.199.120.120:30080/cache/keys
+
+# Test rate limiting (fires after 5 requests in 60s)
+for i in $(seq 1 8); do
+  echo -n "Request $i: "
+  curl -s -o /dev/null -w "%{http_code}\n" http://109.199.120.120:30080/dotnet/api/items
+done
+# 200 200 200 200 200 429 429 429
+```
+
+---
+
+## Teardown
+
+```bash
+# Remove just APISIX stack
+kubectl delete namespace apisix
+
+# Re-deploy fresh
+bash /opt/coderz/k8s/apisix/deploy.sh
+```
