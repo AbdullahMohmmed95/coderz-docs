@@ -1,0 +1,237 @@
+---
+title: "Service Backups"
+description: "Automated daily backups for all Coderz Stack services — PostgreSQL, Redis, Grafana, Elasticsearch, etcd, and configs."
+---
+
+# Service Backups
+
+The Coderz Stack includes a full automated backup system covering every stateful service. Backups run daily via a **Prefect flow at 03:00 AM UTC** and are stored locally with a 7-day rotation.
+
+## What Gets Backed Up
+
+| Service | Method | Output File |
+|---|---|---|
+| **PostgreSQL — Prefect DB** | `pg_dump` | `postgres-prefect.sql.gz` |
+| **PostgreSQL — CoderAPI DB** | `pg_dump` | `postgres-coderapi.sql.gz` |
+| **Redis** | `BGSAVE` + RDB copy | `redis.rdb` |
+| **Grafana** | API dashboard export + volume tar | `grafana/` |
+| **Prometheus** | TSDB snapshot | `prometheus-snapshot.tar.gz` |
+| **Elasticsearch** | Index export + volume tar | `elasticsearch/` + `elasticsearch-data.tar.gz` |
+| **Configs + Compose** | `tar` of `/opt/coderz/configs` | `configs.tar.gz` |
+| **etcd (k3s)** | `k3s etcd-snapshot` | `etcd-k3s.snapshot` |
+| **etcd (APISIX)** | `etcdctl snapshot` from pod | `etcd-apisix.snapshot` |
+| **APISIX routes** | Admin API JSON export | `apisix-config/` |
+
+## Backup Location
+
+```
+/opt/coderz/backup/snapshots/
+├── 2026-03-06_03-00-00/        ← dated snapshot
+│   ├── postgres-prefect.sql.gz
+│   ├── postgres-coderapi.sql.gz
+│   ├── redis.rdb
+│   ├── grafana/
+│   │   ├── grafana-data.tar.gz
+│   │   └── dashboards/         ← per-dashboard JSON exports
+│   ├── prometheus-snapshot.tar.gz
+│   ├── elasticsearch-data.tar.gz
+│   ├── elasticsearch/          ← per-index JSON exports
+│   ├── configs.tar.gz
+│   ├── etcd-k3s.snapshot
+│   ├── etcd-apisix.snapshot
+│   ├── apisix-config/          ← routes, upstreams, consumers JSON
+│   ├── manifest.json           ← summary of what succeeded/failed
+│   └── backup.log              ← full run log
+└── latest -> 2026-03-06_03-00-00   ← symlink to most recent
+```
+
+---
+
+## Manual Backup
+
+```bash
+# Run a full backup now
+bash /opt/coderz/backup/backup.sh
+
+# Custom destination
+bash /opt/coderz/backup/backup.sh --dest /mnt/external-drive
+
+# Keep 14 days instead of 7
+bash /opt/coderz/backup/backup.sh --keep 14
+```
+
+Expected output:
+
+```
+╔══════════════════════════════════════════════════════╗
+║       Coderz Stack — Full Backup                    ║
+╠══════════════════════════════════════════════════════╣
+║  Timestamp : 2026-03-06_04-15-00                    ║
+╚══════════════════════════════════════════════════════╝
+
+── 1/8  PostgreSQL — Prefect DB ──────────────────────────
+  ✓ postgres-prefect.sql.gz (1.2M)
+
+── 2/8  PostgreSQL — CoderAPI DB ─────────────────────────
+  ✓ postgres-coderapi.sql.gz (4.5M)
+
+── 3/8  Redis ────────────────────────────────────────────
+  ✓ redis.rdb (128K)
+
+── 4/8  Grafana ──────────────────────────────────────────
+  ✓ Grafana dashboards exported: 10 files
+  ✓ grafana-data.tar.gz (45M)
+
+── 5/8  Prometheus ───────────────────────────────────────
+  ✓ prometheus-snapshot.tar.gz (820M)
+
+── 6/8  Elasticsearch ────────────────────────────────────
+  ✓ Elasticsearch: 4 indices exported
+  ✓ elasticsearch-data.tar.gz (2.1G)
+
+── 7/8  Configs + Compose ────────────────────────────────
+  ✓ configs.tar.gz (18M)
+
+── 8/8  etcd Snapshots ───────────────────────────────────
+  ✓ k3s-server-db.tar.gz (12M)
+  ✓ etcd-apisix.snapshot (64K)
+  ✓ APISIX config exported (routes, upstreams, services, consumers, global_rules)
+
+╔══════════════════════════════════════════════════════╗
+║  Backup Complete                                     ║
+╠══════════════════════════════════════════════════════╣
+║  ✓ Passed  : 11                                      ║
+║  ✗ Failed  : 0                                       ║
+║  - Skipped : 0                                       ║
+║  Total size: 3.1G                                    ║
+╚══════════════════════════════════════════════════════╝
+```
+
+---
+
+## Restore
+
+```bash
+# List available snapshots
+bash /opt/coderz/backup/restore.sh --list
+
+# Restore latest snapshot
+bash /opt/coderz/backup/restore.sh
+
+# Restore specific snapshot
+bash /opt/coderz/backup/restore.sh 2026-03-06_03-00-00
+```
+
+<Warning>
+Restore **overwrites** current data. All running containers are stopped during restore. You will be prompted to confirm before anything is changed.
+</Warning>
+
+After restore, restart all services:
+
+```bash
+cd /opt/coderz && docker compose restart
+```
+
+---
+
+## Automated Backup — Prefect
+
+Backups run automatically every day at **03:00 AM UTC** via a Prefect flow.
+
+**View in Prefect UI:** `http://109.199.120.120:4200`
+Look for flow: `coderz-backup-daily`
+
+The flow:
+1. Runs `backup.sh`
+2. Checks backup size
+3. Sends email on success and failure
+4. If failed — sends 🔴 alert email with instructions
+
+### Email Alerts
+
+| Event | Subject |
+|---|---|
+| Success | `✅ Coderz Backup — OK (3.1G) on 2026-03-06 03:00` |
+| Partial failure | `⚠️ Coderz Backup — 1 failure(s) on 2026-03-06 03:00` |
+| Flow crash | `🔴 Coderz Backup FAILED on 2026-03-06 03:00` |
+
+### Re-deploy the Prefect backup flow
+
+```bash
+cd /opt/coderz/configs/prefect/flows
+docker exec coderz-prefect-worker prefect --no-prompt deploy --all
+```
+
+### Trigger a manual backup run from Prefect
+
+```bash
+docker exec coderz-prefect-worker \
+  prefect deployment run coderz-backup/coderz-backup-daily
+```
+
+---
+
+## Rotation Policy
+
+Old snapshots are deleted automatically:
+
+```bash
+# Default: keep 7 days
+bash /opt/coderz/backup/backup.sh
+
+# Keep 30 days
+KEEP_DAYS=30 bash /opt/coderz/backup/backup.sh
+
+# Keep forever (0 = no rotation)
+bash /opt/coderz/backup/backup.sh --keep 0
+```
+
+---
+
+## Verify a Backup
+
+```bash
+# Check manifest of latest backup
+cat /opt/coderz/backup/snapshots/latest/manifest.json
+
+# Check full log
+cat /opt/coderz/backup/snapshots/latest/backup.log
+
+# List all files in snapshot
+ls -lh /opt/coderz/backup/snapshots/latest/
+
+# Verify PostgreSQL dump is valid
+zcat /opt/coderz/backup/snapshots/latest/postgres-coderapi.sql.gz | head -5
+# Should output: -- PostgreSQL database dump
+```
+
+---
+
+## Off-Site Backup (Optional)
+
+To copy backups to an external location after each run, append to `backup.sh` or use a cron job:
+
+```bash
+# Copy to remote server via rsync
+rsync -avz /opt/coderz/backup/snapshots/latest/ \
+  user@remote-server:/backups/coderz/$(date +%Y-%m-%d)/
+
+# Copy to S3-compatible storage
+aws s3 sync /opt/coderz/backup/snapshots/latest/ \
+  s3://your-bucket/coderz/$(date +%Y-%m-%d)/
+
+# Or mount an NFS share and change --dest
+bash /opt/coderz/backup/backup.sh --dest /mnt/nfs/coderz-backups
+```
+
+---
+
+## File Reference
+
+| File | Location |
+|---|---|
+| Backup script | `/opt/coderz/backup/backup.sh` |
+| Restore script | `/opt/coderz/backup/restore.sh` |
+| Prefect flow | `/opt/coderz/configs/prefect/flows/backup_flow.py` |
+| Snapshots | `/opt/coderz/backup/snapshots/` |
+| Latest symlink | `/opt/coderz/backup/snapshots/latest/` |

@@ -73,7 +73,7 @@
     },
     {
       "group": "Infrastructure",
-      "pages": ["infrastructure/nginx", "infrastructure/email"]
+      "pages": ["infrastructure/nginx", "infrastructure/email", "infrastructure/backups"]
     }
   ],
   "footerSocials": {
