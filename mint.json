@@ -1,0 +1,81 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Coderz Stack Docs",
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373",
+    "background": {
+      "dark": "#0f1117"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Server",
+      "url": "http://109.199.120.120"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Grafana",
+    "url": "http://109.199.120.120:3000"
+  },
+  "navigation": [
+    {
+      "group": "Overview",
+      "pages": ["introduction", "architecture", "cost-savings", "quickstart"]
+    },
+    {
+      "group": "Monitoring",
+      "pages": [
+        "monitoring/grafana",
+        "monitoring/prometheus",
+        "monitoring/node-exporter",
+        "monitoring/cadvisor"
+      ]
+    },
+    {
+      "group": "Logging",
+      "pages": [
+        "logging/overview",
+        "logging/loki-promtail",
+        "logging/elasticsearch",
+        "logging/logstash",
+        "logging/kibana",
+        "logging/api-logging"
+      ]
+    },
+    {
+      "group": "APIs & Gateway",
+      "pages": [
+        "apis/overview",
+        "apis/api-gateway",
+        "apis/dotnet-api",
+        "apis/web-api"
+      ]
+    },
+    {
+      "group": "Orchestration",
+      "pages": ["orchestration/prefect"]
+    },
+    {
+      "group": "Database",
+      "pages": ["database/postgresql", "database/pgadmin"]
+    },
+    {
+      "group": "Load Testing",
+      "pages": ["load-testing/k6"]
+    },
+    {
+      "group": "Kubernetes",
+      "pages": ["kubernetes/k3s"]
+    },
+    {
+      "group": "Infrastructure",
+      "pages": ["infrastructure/nginx", "infrastructure/email"]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/AbdullahMohmmed95/coderz-docs"
+  }
+}

@@ -1,0 +1,68 @@
+---
+title: "Coderz Stack — Introduction"
+description: "A production-grade DevOps infrastructure stack built for observability, automation, and performance."
+---
+
+# Coderz Stack
+
+The **Coderz Stack** is a fully self-hosted, production-ready infrastructure platform running on a single server. It replaces multiple paid SaaS tools with open-source alternatives — delivering enterprise-level observability, logging, automation, and API management at a fraction of the cost.
+
+<Info>
+  Server IP: **109.199.120.120** — All services are containerized using Docker Compose.
+</Info>
+
+## What's Inside
+
+The stack is organized into 8 functional layers:
+
+<CardGroup cols={2}>
+  <Card title="Monitoring" icon="chart-line" color="#0D9373">
+    Grafana + Prometheus + Node Exporter + cAdvisor — real-time metrics for host, containers, and APIs.
+  </Card>
+  <Card title="Logging" icon="list" color="#0D9373">
+    Dual pipeline: Loki/Promtail for fast querying and ELK (Elasticsearch + Logstash + Kibana) for deep log analytics.
+  </Card>
+  <Card title="API Gateway" icon="shield" color="#0D9373">
+    Nginx-based API Gateway with Redis caching and rate limiting — protecting and accelerating all backend APIs.
+  </Card>
+  <Card title="Orchestration" icon="clock" color="#0D9373">
+    Prefect for scheduled workflows — health checks, daily reports, alerts, and cleanup jobs.
+  </Card>
+  <Card title="APIs" icon="code" color="#0D9373">
+    Python Web API (port 8888) and .NET API (port 5050) — both fully monitored and logged.
+  </Card>
+  <Card title="Database" icon="database" color="#0D9373">
+    PostgreSQL with pgAdmin — managed, backed, and monitored.
+  </Card>
+  <Card title="Load Testing" icon="bolt" color="#0D9373">
+    k6 with a web UI — run stress, spike, and ramp-up tests against any service.
+  </Card>
+  <Card title="Kubernetes" icon="server" color="#0D9373">
+    k3s lightweight Kubernetes cluster — deploy containerized workloads with full observability.
+  </Card>
+</CardGroup>
+
+## Quick Service Map
+
+| Service | URL | Purpose |
+|---|---|---|
+| Grafana | http://109.199.120.120:3000 | Dashboards & Alerts |
+| Prometheus | http://109.199.120.120:9090 | Metrics |
+| Kibana | http://109.199.120.120:5601 | Log Search & Analytics |
+| Prefect UI | http://109.199.120.120:4200 | Workflow Automation |
+| pgAdmin | http://109.199.120.120:5080 | Database Management |
+| k6 Runner | http://109.199.120.120:9000 | Load Testing |
+| .NET API | http://109.199.120.120:5050 | REST API |
+| Web API | http://109.199.120.120:8888 | Python API |
+| Landing Page | http://109.199.120.120 | Nginx Home |
+
+## Who Is This For?
+
+This documentation is intended for:
+- **Engineering teams** managing and extending the stack
+- **Managers** evaluating cost savings and operational efficiency
+- **DevOps engineers** integrating new services
+
+<Tip>
+  Start with the [Architecture](/architecture) page for a full visual overview, then check [Cost Savings](/cost-savings) to understand the business value.
+</Tip>

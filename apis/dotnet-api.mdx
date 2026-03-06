@@ -1,0 +1,101 @@
+---
+title: ".NET API"
+description: "The main Coderz REST API built with ASP.NET Core — monitored, logged, and load-tested."
+---
+
+# .NET API (Coderz REST API)
+
+**URL:** http://109.199.120.120:5050
+**Technology:** ASP.NET Core
+**Database:** PostgreSQL (coderz-db, port 5433)
+
+The .NET API is the primary backend service of the Coderz Stack. It serves as the main REST API, backed by PostgreSQL, with full Prometheus metrics exposure, structured logging to ELK, and load testing coverage via k6.
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/items` | List all items (supports `?page=N`) |
+| `GET` | `/api/items/{id}` | Get a single item by ID |
+| `POST` | `/api/items` | Create a new item |
+| `PUT` | `/api/items/{id}` | Update an item |
+| `DELETE` | `/api/items/{id}` | Delete an item |
+| `GET` | `/metrics` | Prometheus metrics endpoint |
+| `GET` | `/health` | Health check endpoint |
+
+## Metrics Exposed to Prometheus
+
+The .NET API uses the `prometheus-net` library to expose:
+
+```
+http_requests_received_total        # Total request count by method, path, status
+http_request_duration_seconds       # Request duration histogram
+http_requests_in_progress           # Currently active requests
+dotnet_collection_count_total       # Garbage collection counts
+dotnet_total_memory_bytes           # .NET process memory
+process_cpu_seconds_total           # CPU usage
+```
+
+These are scraped by Prometheus every 15 seconds and displayed in the **.NET API Full Stack** Grafana dashboard.
+
+## Grafana Dashboard: .NET API Full Stack
+
+| Panel | What It Shows |
+|---|---|
+| Request Rate | Requests per second, by endpoint |
+| Error Rate | 4xx and 5xx responses per minute |
+| Response Time | P50, P95, P99 latency percentiles |
+| Active Requests | Currently in-flight requests |
+| PostgreSQL Queries | Query count and duration |
+| Live Request Log | Live Loki log stream of every request |
+
+## Structured Log Format
+
+Every request logs a structured JSON entry:
+
+```json
+{
+  "@timestamp": "2026-03-06T20:15:33Z",
+  "level": "INFO",
+  "client.ip": "192.168.1.50",
+  "http.method": "GET",
+  "http.url.path": "/api/items",
+  "http.url.query": "page=2",
+  "http.response.status_code": 200,
+  "duration_ms": 87,
+  "db.query": "SELECT * FROM items LIMIT 20 OFFSET 20",
+  "db.duration_ms": 34,
+  "service.name": "coderz-dotnet-api"
+}
+```
+
+## k6 Load Test Scenarios
+
+| Scenario | Description |
+|---|---|
+| `dotnet-items` | Paginated GET /api/items — simulates read traffic |
+| `dotnet-crud` | GET + POST + PUT cycle — simulates full CRUD |
+| `dotnet-mixed` | All endpoints mixed — simulates realistic traffic |
+| `dotnet-stress` | Step ramp-up to find breaking point |
+
+Run from the k6 UI at http://109.199.120.120:9000.
+
+## Database Connection
+
+The .NET API connects to PostgreSQL with:
+- **Host:** `coderz-db` (Docker internal)
+- **Port:** `5433`
+- **Database:** `coderapi`
+- **User:** `coderapi`
+- **Password:** `coderapi_2024`
+
+## View Logs in Kibana
+
+```kql
+service.name: "coderz-dotnet-api"
+```
+
+Filter to errors only:
+```kql
+service.name: "coderz-dotnet-api" and http.response.status_code >= 400
+```

@@ -1,0 +1,86 @@
+---
+title: "Prometheus"
+description: "Time-series metrics collection and storage for the entire Coderz Stack."
+---
+
+# Prometheus
+
+**URL:** http://109.199.120.120:9090
+**Config:** `/opt/coderz/configs/prometheus/prometheus.yml`
+
+Prometheus is the **metrics backbone** of the stack. It scrapes metrics from every service every 15 seconds and stores them as time-series data. Grafana queries Prometheus to build all dashboards and evaluate alert rules.
+
+## How It Works
+
+```
+Services expose /metrics endpoint
+        │
+        ▼
+Prometheus scrapes every 15s
+        │
+        ▼
+Stores in local TSDB (time-series database)
+        │
+        ▼
+Grafana queries via PromQL
+```
+
+## Scrape Targets
+
+| Target | Port | What It Collects |
+|---|---|---|
+| Node Exporter | 9100 | Host CPU, RAM, disk, network, processes |
+| cAdvisor | 8080 | Per-container CPU, memory, network, I/O |
+| .NET API | 5050 | HTTP request counts, durations, error rates |
+| k3s API Server | 6443 | Kubernetes pod/node/deployment status |
+| kube-state-metrics | 8080 | Kubernetes resource state |
+| Prometheus itself | 9090 | Self-monitoring |
+
+## Key Metrics
+
+### Host Metrics (from Node Exporter)
+```promql
+node_cpu_seconds_total          # CPU time by mode
+node_memory_MemAvailable_bytes  # Available memory
+node_filesystem_free_bytes      # Free disk space
+node_network_receive_bytes_total # Network traffic in
+node_network_transmit_bytes_total # Network traffic out
+node_load1                      # 1-minute load average
+```
+
+### Container Metrics (from cAdvisor)
+```promql
+container_cpu_usage_seconds_total     # Container CPU
+container_memory_usage_bytes          # Container RAM
+container_network_receive_bytes_total # Container network in
+container_fs_reads_bytes_total        # Container disk reads
+```
+
+### .NET API Metrics
+```promql
+http_requests_received_total          # Total requests
+http_request_duration_seconds         # Request duration histogram
+http_requests_in_progress             # Active requests
+```
+
+## Retention
+
+Prometheus stores metrics locally for **30 days** by default. Data older than 30 days is automatically deleted.
+
+To change retention, update the Prometheus startup command in `docker-compose.yml`:
+```yaml
+command:
+  - '--storage.tsdb.retention.time=60d'
+```
+
+## Accessing the UI
+
+The Prometheus UI at port 9090 lets you:
+- **Execute PromQL queries** directly
+- **See all scrape targets** and their status (Targets page)
+- **View alert rules** and their current state
+
+### Check All Targets Are Up
+Go to: http://109.199.120.120:9090/targets
+
+All targets should show `State: UP`. A `DOWN` state means Prometheus cannot reach that service.

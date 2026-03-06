@@ -1,0 +1,115 @@
+---
+title: "Cost Savings"
+description: "How the Coderz Stack replaces expensive SaaS tools and cuts infrastructure costs."
+---
+
+# Cost Savings & Business Value
+
+The Coderz Stack is built entirely on **open-source software**, self-hosted on a single server. This replaces multiple paid SaaS subscriptions that would otherwise cost thousands of dollars per month.
+
+## SaaS vs Self-Hosted Comparison
+
+| What We Need | SaaS Alternative | SaaS Monthly Cost | Coderz Tool | Our Cost |
+|---|---|---|---|---|
+| Metrics & Dashboards | Datadog | $600–$2,000/mo | Grafana + Prometheus | $0 |
+| Log Management | Splunk | $1,800–$5,000/mo | ELK Stack + Loki | $0 |
+| Workflow Automation | Prefect Cloud | $500–$2,000/mo | Prefect (self-hosted) | $0 |
+| Load Testing | LoadImpact / Grafana Cloud k6 | $300–$1,000/mo | k6 (self-hosted) | $0 |
+| Database Hosting | RDS / PlanetScale | $200–$800/mo | PostgreSQL (Docker) | $0 |
+| DB Admin UI | TablePlus Pro / DBngin | $100–$300/mo | pgAdmin | $0 |
+| API Gateway | Kong Enterprise | $500–$3,000/mo | Nginx + Redis | $0 |
+| Alert Management | PagerDuty | $400–$1,500/mo | Grafana Alerting | $0 |
+| Kubernetes | EKS / GKE | $300–$1,500/mo | k3s (self-hosted) | $0 |
+
+<Info>
+  **Estimated total SaaS cost: $4,700 – $17,100 per month**
+
+  **Coderz Stack cost: ~$50–80/month** (single VPS server)
+
+  **Annual savings: $55,000 – $205,000**
+</Info>
+
+## Why This Matters
+
+### 1. No Per-Seat Pricing
+SaaS tools like Datadog and Splunk charge **per host** or **per user**. As your team grows, costs scale aggressively. The Coderz Stack has no per-seat licensing — add 100 developers or 50 servers and pay the same.
+
+### 2. No Data Egress Fees
+Sending logs or metrics to a cloud SaaS product means your data leaves your network. Cloud providers charge **data egress fees** (typically $0.08–$0.12/GB). With Coderz, all data stays on-premise — zero egress costs.
+
+### 3. No Vendor Lock-in
+Every tool in the stack is open-source and uses open standards (PromQL, LogQL, OpenSearch, etc.). You can migrate, extend, or replace any component at any time without contract penalties.
+
+### 4. Full Data Ownership
+Your logs, metrics, and operational data stay on **your server**. No third-party can access, sell, or lose your data. Critical for compliance with GDPR and internal data governance policies.
+
+### 5. Customization Without Extra Cost
+SaaS platforms charge extra for custom dashboards, extended retention, advanced alerting, or API access. In Coderz, **everything is configurable** at no additional cost.
+
+## Cost Reduction Strategies Built Into the Stack
+
+<AccordionGroup>
+  <Accordion title="API Gateway + Redis Cache — Reduce Backend Load">
+    The Nginx API Gateway with Redis caching stores frequently-requested API responses. This reduces:
+    - **Database queries** (PostgreSQL) by up to 80% for read-heavy endpoints
+    - **CPU usage** on backend API servers
+    - **Response latency** for end users (cache hits respond in under 1ms)
+
+    This means you need fewer servers to handle the same traffic — directly cutting compute costs.
+  </Accordion>
+
+  <Accordion title="k6 Load Testing — Catch Problems Before They Cost Money">
+    Running load tests before deployments catches performance regressions early. A single production outage can cost more than months of infrastructure. k6 lets the team:
+    - Validate capacity before scaling
+    - Identify bottlenecks before they hit users
+    - Avoid emergency infrastructure spending
+  </Accordion>
+
+  <Accordion title="Prefect Automation — Eliminate Manual Operations">
+    Prefect replaces manual operational tasks with automated workflows:
+    - **Daily summary reports** replace manual morning check-ins
+    - **Threshold alerts** replace someone watching dashboards 24/7
+    - **Weekly cleanup jobs** prevent storage bloat that causes costly incidents
+    - **Docker restart monitoring** catches failing services before users notice
+
+    Each automated workflow replaces 1–4 hours of manual work per week per engineer.
+  </Accordion>
+
+  <Accordion title="Centralized Logging — Faster Debugging">
+    With Kibana + Loki, engineers find the root cause of issues in minutes instead of hours. Every hour of debugging time saved = direct cost savings in engineering salary.
+
+    Example: If an engineer earns $50/hr and spends 3 hours debugging a production issue that centralized logs would solve in 15 minutes — that's **$137.50 saved per incident**.
+  </Accordion>
+
+  <Accordion title="Grafana Alerting — Proactive vs Reactive">
+    Alerts fire on CPU > 80%, RAM > 85%, Disk > 90%, and container failures. This means:
+    - Issues are caught **before** they cause downtime
+    - Downtime is expensive: even 1 hour of API downtime can mean lost revenue and SLA penalties
+    - Proactive alerting is the cheapest form of incident management
+  </Accordion>
+</AccordionGroup>
+
+## Total Cost of Ownership
+
+```
+Infrastructure (VPS server):        ~$60/month
+Maintenance (engineering hours):    ~2-4 hours/month
+Software licenses:                  $0
+
+Total:                              ~$60–100/month
+
+vs. Equivalent SaaS stack:         $4,700–17,100/month
+
+ROI: 47x – 171x return on infrastructure investment
+```
+
+## Scaling Path
+
+When the team or traffic grows, the stack scales without a cost cliff:
+
+1. **Vertical scale** — Upgrade the VPS (double RAM/CPU for ~$40/month more)
+2. **Add nodes to k3s** — Run more workloads on additional cheap VPS nodes
+3. **Shard Elasticsearch** — Add replicas for high-volume log ingestion
+4. **Federation Prometheus** — Add regional Prometheus instances feeding one Grafana
+
+None of these require changing tools or paying licensing fees.

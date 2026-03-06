@@ -1,0 +1,76 @@
+---
+title: "Loki + Promtail"
+description: "Lightweight log aggregation tightly integrated with Grafana dashboards."
+---
+
+# Loki + Promtail
+
+**Loki Port:** 3100 (internal)
+**Config:** `/opt/coderz/configs/loki/loki-config.yml`
+**Promtail Config:** `/opt/coderz/configs/promtail/promtail-config.yml`
+**Developed by:** Grafana Labs
+
+Loki is a **horizontally-scalable log aggregation system** designed to work natively with Grafana. Unlike Elasticsearch, Loki indexes only the **labels** (metadata) of logs, not the full content — making it much cheaper in terms of storage and CPU.
+
+## How Promtail Collects Logs
+
+Promtail runs on the same host as the Docker daemon. It:
+1. Reads Docker container log files from `/var/lib/docker/containers/`
+2. Attaches labels (container name, image, compose service)
+3. Ships logs to Loki in real-time
+
+## Log Labels
+
+Every log line in Loki is tagged with:
+
+| Label | Example |
+|---|---|
+| `container_name` | `coderz-grafana` |
+| `compose_service` | `grafana` |
+| `image_name` | `grafana/grafana:latest` |
+| `filename` | `/var/lib/docker/containers/abc123/abc123-json.log` |
+
+## Querying Logs with LogQL
+
+LogQL is Loki's query language. It works like grep but with label selectors.
+
+```logql
+# All logs from the .NET API
+{container_name="coderz-dotnet-api"}
+
+# Only error lines from the .NET API
+{container_name="coderz-dotnet-api"} |= "error"
+
+# Logs containing "500" from any container
+{compose_service=~".+"} |= "500"
+
+# Count errors per minute
+rate({container_name="coderz-dotnet-api"} |= "error" [1m])
+
+# Parse JSON logs and filter by status
+{container_name="coderz-dotnet-api"} | json | status >= 500
+```
+
+## Grafana Integration
+
+Loki is pre-configured as a Grafana datasource. In Grafana, use it in:
+
+- **Container Logs dashboard** — live log viewer for all containers
+- **Prefect Flows dashboard** — flow run logs and completion events
+- **.NET API Full Stack dashboard** — live API request log table
+
+To explore logs manually:
+1. Open Grafana → **Explore**
+2. Select datasource: **Loki**
+3. Enter a LogQL query
+
+## Loki vs Elasticsearch
+
+| Feature | Loki | Elasticsearch |
+|---|---|---|
+| Index approach | Labels only (metadata) | Full-text index |
+| Storage cost | Low | High |
+| Query language | LogQL | KQL / Lucene |
+| Best for | Label-based filtering | Full-text search |
+| Grafana native | Yes | Needs plugin |
+| Resource usage | Low (~50MB RAM) | High (~1–4GB RAM) |

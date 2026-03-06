@@ -1,0 +1,140 @@
+---
+title: "Architecture"
+description: "Full system architecture of the Coderz Stack — how all services connect."
+---
+
+# Architecture
+
+All services run inside Docker containers on a single Ubuntu server, connected via the `coderz-net` Docker bridge network. External traffic enters through Nginx on port 80 or directly to each service port.
+
+## System Diagram
+
+```
+                          INTERNET
+                             │
+                    ┌────────▼────────┐
+                    │   Nginx :80     │  ← Landing Page / API Gateway
+                    │  + Redis Cache  │
+                    └────────┬────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+   ┌──────▼──────┐   ┌───────▼──────┐   ┌──────▼──────┐
+   │  .NET API   │   │  Python API  │   │  Static     │
+   │   :5050     │   │    :8888     │   │  Assets     │
+   └──────┬──────┘   └───────┬──────┘   └─────────────┘
+          │                  │
+          └──────────┬────────┘
+                     │
+             ┌───────▼────────┐
+             │  PostgreSQL    │
+             │    :5433       │
+             └────────────────┘
+
+  ┌─────────────── MONITORING ──────────────────┐
+  │                                             │
+  │  Prometheus :9090 ◄── Node Exporter :9100   │
+  │       │            ◄── cAdvisor :8080        │
+  │       │            ◄── .NET API metrics      │
+  │       │            ◄── k3s API server        │
+  │       ▼                                     │
+  │  Grafana :3000 ──► Alerts ──► Email (SMTP)  │
+  └─────────────────────────────────────────────┘
+
+  ┌─────────────── LOGGING ─────────────────────┐
+  │                                             │
+  │  Promtail ──► Loki :3100 ──► Grafana        │
+  │                                             │
+  │  Filebeat ──► Logstash :5044 ──► ES :9200   │
+  │                                   │         │
+  │                              Kibana :5601   │
+  └─────────────────────────────────────────────┘
+
+  ┌─────────────── ORCHESTRATION ───────────────┐
+  │                                             │
+  │  Prefect :4200                              │
+  │    ├── system-health (every 5min)           │
+  │    ├── services-health (every 10min)        │
+  │    ├── threshold-alerts (every 15min)       │
+  │    ├── k8s-health (every 15min)             │
+  │    ├── docker-restart-monitor (every 10min) │
+  │    ├── daily-summary (06:00 UTC)            │
+  │    └── weekly-cleanup (Sunday 02:00 UTC)    │
+  └─────────────────────────────────────────────┘
+
+  ┌─────────────── KUBERNETES ──────────────────┐
+  │                                             │
+  │  k3s cluster                                │
+  │    ├── coderz-web (2 replicas)              │
+  │    └── kube-state-metrics                   │
+  └─────────────────────────────────────────────┘
+```
+
+## Network Layout
+
+All containers share the `coderz-net` Docker bridge network. This means:
+- Services communicate by **container name** (e.g., `coderz-dotnet-api:8080`)
+- No external exposure unless a port is explicitly mapped
+- Redis, PostgreSQL, and Loki are internal-only by default
+
+## Data Flow: API Request
+
+```
+Client
+  │
+  ▼
+Nginx (API Gateway)
+  ├── Check Redis cache → HIT → return cached response
+  │
+  ├── MISS → forward to backend API
+  │              │
+  │              ├── .NET API or Python API
+  │              │     │
+  │              │     └── PostgreSQL query
+  │              │
+  │              └── Response → cache in Redis → return to client
+  │
+  └── Log request → Logstash → Elasticsearch → Kibana
+```
+
+## Data Flow: Metrics
+
+```
+Host OS / Docker / k3s
+  │
+  ├── Node Exporter :9100  (CPU, RAM, Disk, Network)
+  ├── cAdvisor :8080       (container-level metrics)
+  ├── .NET API /metrics    (app-level metrics)
+  └── k3s API server       (Kubernetes metrics)
+         │
+         ▼
+    Prometheus :9090
+    (scrapes every 15s, stores 30 days)
+         │
+         ▼
+    Grafana :3000
+    (dashboards + alert rules)
+         │
+         ▼
+    Postfix SMTP → Gmail → aboodm7med1995@gmail.com
+```
+
+## Port Reference
+
+| Port | Service | Accessible From |
+|------|---------|----------------|
+| 80 | Nginx | Public |
+| 3000 | Grafana | Public |
+| 3100 | Loki | Internal |
+| 3333 | Mintlify Docs | Public |
+| 4200 | Prefect UI | Public |
+| 5050 | .NET API | Public |
+| 5080 | pgAdmin | Public |
+| 5433 | PostgreSQL | Internal |
+| 5601 | Kibana | Public |
+| 8080 | cAdvisor | Internal |
+| 8888 | Web API | Public |
+| 9000 | k6 Runner | Public |
+| 9090 | Prometheus | Public |
+| 9100 | Node Exporter | Internal |
+| 9200 | Elasticsearch | Internal |

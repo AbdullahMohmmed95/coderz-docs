@@ -1,0 +1,128 @@
+---
+title: "Prefect"
+description: "Workflow orchestration for automated health checks, alerts, reports, and maintenance jobs."
+---
+
+# Prefect
+
+**URL:** http://109.199.120.120:4200
+**Config:** `/opt/coderz/configs/prefect/flows/`
+
+Prefect is a **workflow orchestration platform** that runs automated background jobs on schedules. In the Coderz Stack, it replaces manual operational tasks — health checks, alerting, reporting, and cleanup — with automated, monitored, and logged flows.
+
+## What Is a Prefect Flow?
+
+A **flow** is a Python function decorated with `@flow`. It contains **tasks** that run in sequence or parallel. Prefect:
+- Schedules flows on cron schedules
+- Retries failed tasks automatically
+- Logs every run with stdout/stderr
+- Sends notifications on failure
+- Provides a UI to monitor all runs
+
+## Deployed Flows
+
+| Flow | Schedule | Description | On Failure |
+|---|---|---|---|
+| `system-health-check` | Every 5 min | Check CPU, RAM, disk, process counts | Log |
+| `services-health-check` | Every 10 min | HTTP health check all stack services | Email alert |
+| `threshold-alert-check` | Every 15 min | Alert if CPU > 80%, RAM > 85%, Disk > 90% | Email alert |
+| `docker-restart-monitor` | Every 10 min | Detect containers with restart loops or unhealthy status | Email alert |
+| `k8s-health-check` | Every 15 min | Check k3s pods, nodes, deployments | Email alert |
+| `daily-summary-report` | Daily 06:00 UTC | Full stack health summary report | Email report |
+| `weekly-cleanup-report` | Sunday 02:00 UTC | Disk cleanup, Docker prune, old log removal | Email report |
+
+## Flow Detail: system-health-check
+
+Runs every 5 minutes. Checks:
+- CPU usage (via `/proc/stat`)
+- RAM usage (via `/proc/meminfo`)
+- Disk usage (via `df`)
+- Docker container count (via Docker socket)
+
+Output is logged to Prefect UI and Loki.
+
+## Flow Detail: services-health-check
+
+Runs every 10 minutes. Sends HTTP GET to each service:
+
+```python
+SERVICES = [
+    {"name": "Grafana",      "url": "http://grafana:3000/api/health"},
+    {"name": "Prometheus",   "url": "http://prometheus:9090/-/healthy"},
+    {"name": "Kibana",       "url": "http://kibana:5601/api/status"},
+    {"name": "Prefect UI",   "url": "http://prefect-server:4200/api/health"},
+    {"name": ".NET API",     "url": "http://coderz-dotnet-api:8080/health"},
+    {"name": "Web API",      "url": "http://coderz-web-api:8888/health"},
+    {"name": "Elasticsearch","url": "http://elasticsearch:9200/_cluster/health"},
+]
+```
+
+If any service returns non-200 or times out → sends email alert.
+
+## Flow Detail: threshold-alert-check
+
+Runs every 15 minutes. Checks actual metric values:
+
+```
+CPU  > 80%  → Email: "WARNING: CPU at 87% on coderz-server"
+RAM  > 85%  → Email: "WARNING: RAM at 91% on coderz-server"
+Disk > 90%  → Email: "CRITICAL: Disk at 93% on coderz-server"
+```
+
+## Flow Detail: docker-restart-monitor
+
+Runs every 10 minutes. Checks:
+- Containers with `RestartCount > 3` in the last hour
+- Containers with health status `unhealthy`
+
+Sends email listing all problematic containers.
+
+## Flow Detail: daily-summary-report
+
+Runs daily at 06:00 UTC. Email contains:
+- Server uptime
+- Current CPU / RAM / Disk usage
+- All service health status (UP/DOWN)
+- Prefect flow run summary (success/failure counts)
+- Docker container status
+- k3s pod status
+
+## Flow Detail: weekly-cleanup-report
+
+Runs Sunday 02:00 UTC. Performs:
+- `docker system prune -f` (removes unused images, stopped containers, unused networks)
+- Deletes Elasticsearch indices older than 30 days
+- Truncates old Loki chunks
+- Reports disk space freed
+
+## Email Notifications
+
+All flows send emails via Postfix SMTP relay → Gmail:
+- **SMTP Host:** `host.docker.internal:25`
+- **From:** `alerts@coderz.local`
+- **To:** `aboodm7med1995@gmail.com`
+
+## Prefect UI
+
+Access at http://109.199.120.120:4200
+
+| Section | What You See |
+|---|---|
+| **Flow Runs** | History of every run — success/failure/pending |
+| **Flows** | All registered flows |
+| **Deployments** | Schedules and next run times |
+| **Work Pools** | Where flows execute |
+| **Logs** | Full stdout/stderr for each run |
+
+## Flow Files
+
+```
+/opt/coderz/configs/prefect/flows/
+├── sample_flows.py      # All flow definitions
+└── prefect.yaml         # Deployment config (schedules)
+```
+
+To add a new flow:
+1. Add a `@flow` function to `sample_flows.py`
+2. Add a deployment to `prefect.yaml`
+3. Restart the Prefect worker: `docker compose restart prefect-worker`

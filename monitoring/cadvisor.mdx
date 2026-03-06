@@ -1,0 +1,57 @@
+---
+title: "cAdvisor"
+description: "Per-container resource usage monitoring for all Docker containers."
+---
+
+# cAdvisor (Container Advisor)
+
+**Port:** 8080 (internal)
+**Developed by:** Google
+
+cAdvisor runs alongside the Docker daemon and automatically discovers **every running container**, collecting real-time resource usage metrics. These metrics are scraped by Prometheus and displayed in Grafana's Docker Containers dashboard.
+
+## What It Monitors Per Container
+
+| Metric | Description |
+|---|---|
+| **CPU** | CPU usage in cores and percentage |
+| **Memory** | RAM usage, cache, working set |
+| **Network I/O** | Bytes sent and received per container |
+| **Disk I/O** | Bytes read and written to disk |
+| **Filesystem** | Container filesystem usage |
+
+## Why cAdvisor + Node Exporter Together?
+
+| Tool | Scope |
+|---|---|
+| Node Exporter | The whole server (host-level) |
+| cAdvisor | Each individual container |
+
+Together they give complete visibility: you can see if the server is stressed **and** which specific container is causing it.
+
+## Use Cases
+
+**Identify a memory-leaking container:**
+```promql
+sort_desc(container_memory_usage_bytes{name!=""})
+```
+
+**Find the most CPU-hungry container:**
+```promql
+sort_desc(rate(container_cpu_usage_seconds_total{name!=""}[5m]))
+```
+
+**Check network traffic per container:**
+```promql
+rate(container_network_receive_bytes_total{name!=""}[5m])
+```
+
+## Grafana Dashboard
+
+The **Docker Containers** dashboard shows:
+- Top 10 containers by CPU
+- Top 10 containers by memory
+- Network traffic per container
+- All containers on a single timeline view
+
+This makes it easy to spot which service is consuming the most resources at any given time.

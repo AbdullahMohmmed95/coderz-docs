@@ -1,0 +1,97 @@
+---
+title: "Email (SMTP)"
+description: "Postfix mail relay for Grafana alerts and Prefect flow notifications."
+---
+
+# Email — Postfix SMTP
+
+**Host:** Postfix installed on the server host (not in Docker)
+**Relay:** smtp.gmail.com:587
+**Gmail Account:** aboodm7med1995@gmail.com
+
+The Coderz Stack sends automated emails for Grafana alerts and Prefect flow notifications via a Postfix SMTP relay configured on the host server. Postfix relays all outgoing mail through Gmail's SMTP servers.
+
+## How It Works
+
+```
+Grafana Alert / Prefect Flow
+          │
+          ▼
+  host.docker.internal:25
+  (Postfix on host, port 25)
+          │
+          ▼
+  smtp.gmail.com:587
+  (Gmail relay, TLS)
+          │
+          ▼
+  aboodm7med1995@gmail.com
+```
+
+Docker containers reach the host Postfix via `host.docker.internal` — a special DNS name that resolves to the Docker host's IP.
+
+## When Emails Are Sent
+
+| Trigger | From | Subject |
+|---|---|---|
+| CPU > 80% for 5min | Grafana | `[ALERTING] High CPU Usage` |
+| RAM > 85% for 5min | Grafana | `[ALERTING] High Memory Usage` |
+| Disk > 90% for 5min | Grafana | `[ALERTING] High Disk Usage` |
+| Containers < 6 for 2min | Grafana | `[ALERTING] Low Container Count` |
+| Service health check fails | Prefect | `[ALERT] Service Down` |
+| CPU/RAM/Disk threshold exceeded | Prefect | `[THRESHOLD] Resource Alert` |
+| Container restart loop detected | Prefect | `[ALERT] Container Restarting` |
+| k3s pod failure | Prefect | `[ALERT] Kubernetes Health Check Failed` |
+| Daily summary | Prefect | `[REPORT] Daily Stack Summary` |
+| Weekly cleanup | Prefect | `[REPORT] Weekly Cleanup Summary` |
+
+## Test Email
+
+Send a test email from the host:
+
+```bash
+echo "Test from Coderz server" | mail -s "Coderz Test Email" aboodm7med1995@gmail.com
+```
+
+## Test Email from Docker Container
+
+```bash
+docker exec coderz-prefect-worker \
+  sh -c 'echo "Test" | sendmail -v aboodm7med1995@gmail.com'
+```
+
+## Postfix Configuration Files
+
+| File | Purpose |
+|---|---|
+| `/etc/postfix/main.cf` | Main Postfix configuration |
+| `/etc/postfix/sasl_passwd` | Gmail credentials (chmod 600) |
+| `/etc/postfix/sasl_passwd.db` | Compiled credentials database |
+
+## Check Email Delivery
+
+```bash
+# Check mail queue
+mailq
+
+# View Postfix logs
+tail -f /var/log/mail.log
+
+# Force flush the queue
+postfix flush
+```
+
+## Grafana SMTP Settings
+
+In `docker-compose.yml` under the `grafana` service:
+```yaml
+environment:
+  GF_SMTP_ENABLED: "true"
+  GF_SMTP_HOST: "host.docker.internal:25"
+  GF_SMTP_FROM_ADDRESS: "alerts@coderz.local"
+  GF_SMTP_FROM_NAME: "Coderz Alerts"
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+The `extra_hosts` entry is **required** — it maps `host.docker.internal` to the Docker gateway IP so the container can reach the host's Postfix.

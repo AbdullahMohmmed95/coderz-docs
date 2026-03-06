@@ -1,0 +1,133 @@
+---
+title: "Logstash"
+description: "Log processing pipeline — parse, enrich, and route logs to Elasticsearch."
+---
+
+# Logstash
+
+**Ports:** 5044 (Beats input), 5000 (TCP input)
+**Developed by:** Elastic
+
+Logstash is the **processing layer** of the ELK stack. It receives raw logs, applies transformations (parsing, field extraction, enrichment), and forwards structured documents to Elasticsearch.
+
+## Pipeline Architecture
+
+```
+Input (Beats/TCP)
+      │
+      ▼
+  Filter Stage
+  ├── grok (parse unstructured text)
+  ├── json (parse JSON logs)
+  ├── date (parse timestamps)
+  ├── mutate (rename/remove/add fields)
+  └── geoip (add location from IP)
+      │
+      ▼
+Output (Elasticsearch)
+```
+
+## What Logstash Does to API Logs
+
+When an API request is logged, Logstash:
+
+1. **Receives** the raw log line from Filebeat
+2. **Parses** the log using grok patterns to extract:
+   - Client IP address
+   - HTTP method (GET, POST, PUT, DELETE)
+   - Request path and query string
+   - HTTP status code
+   - Response duration in milliseconds
+   - Error message (if any)
+3. **Enriches** with GeoIP lookup (city, country from IP)
+4. **Adds** metadata fields (environment, service name)
+5. **Sends** the structured document to Elasticsearch
+
+## Example: Parsing an API Request Log
+
+**Raw log input:**
+```
+2026-03-06T20:15:33Z [INFO] 192.168.1.50 GET /api/items?page=2 200 87ms
+```
+
+**After Logstash processing:**
+```json
+{
+  "@timestamp": "2026-03-06T20:15:33Z",
+  "log.level": "INFO",
+  "client.ip": "192.168.1.50",
+  "http.method": "GET",
+  "http.url.path": "/api/items",
+  "http.url.query": "page=2",
+  "http.response.status_code": 200,
+  "duration_ms": 87,
+  "service.name": "coderz-dotnet-api",
+  "environment": "production"
+}
+```
+
+## Example: Parsing a Failed Request
+
+**Raw log input:**
+```
+2026-03-06T20:17:01Z [ERROR] 10.0.0.22 POST /api/orders 500 234ms NullReferenceException at OrderService.cs:142
+```
+
+**After Logstash processing:**
+```json
+{
+  "@timestamp": "2026-03-06T20:17:01Z",
+  "log.level": "ERROR",
+  "client.ip": "10.0.0.22",
+  "http.method": "POST",
+  "http.url.path": "/api/orders",
+  "http.response.status_code": 500,
+  "duration_ms": 234,
+  "error.type": "NullReferenceException",
+  "error.location": "OrderService.cs:142",
+  "service.name": "coderz-dotnet-api"
+}
+```
+
+## Common Logstash Filters
+
+```ruby
+# Parse Apache/Nginx-style combined log format
+grok {
+  match => { "message" => "%{COMBINEDAPACHELOG}" }
+}
+
+# Parse JSON log
+json {
+  source => "message"
+}
+
+# Parse timestamp
+date {
+  match => [ "timestamp", "ISO8601" ]
+  target => "@timestamp"
+}
+
+# Add GeoIP from client IP
+geoip {
+  source => "client.ip"
+  target => "geoip"
+}
+
+# Rename a field
+mutate {
+  rename => { "host" => "server.hostname" }
+}
+
+# Drop health check logs to reduce noise
+if [http.url.path] == "/health" {
+  drop { }
+}
+```
+
+## Checking Logstash Status
+
+```bash
+docker logs coderz-logstash --tail=50
+curl http://localhost:9600/_node/stats/pipeline?pretty
+```

@@ -1,0 +1,52 @@
+---
+title: "Node Exporter"
+description: "Host-level system metrics collector for the Coderz server."
+---
+
+# Node Exporter
+
+**Port:** 9100 (internal)
+**Metrics Endpoint:** http://109.199.120.120:9100/metrics
+
+Node Exporter is a Prometheus exporter that exposes **hardware and OS metrics** from the host server. It runs as a Docker container with access to the host's `/proc` and `/sys` filesystems, giving Prometheus full visibility into the physical machine.
+
+## What It Monitors
+
+| Category | Metrics |
+|---|---|
+| **CPU** | Usage per core, idle/user/system/iowait breakdown |
+| **Memory** | Total, available, used, buffers, cached, swap |
+| **Disk** | Free space, used space, read/write I/O, IOPS |
+| **Network** | Bytes in/out, packets, errors, drops per interface |
+| **System** | Load average (1m/5m/15m), uptime, process count |
+| **File Descriptors** | Open FDs, max FDs |
+| **TCP** | Active connections, TIME_WAIT, ESTABLISHED counts |
+
+## Grafana Dashboard
+
+The **Server Overview** dashboard in Grafana displays all Node Exporter metrics with pre-built panels:
+
+- CPU Usage % over time
+- CPU by mode (user, system, idle, iowait, steal)
+- RAM usage (used vs available)
+- Disk usage per mount point
+- Network traffic (in/out per interface)
+- Load average (1m/5m/15m)
+- Open file descriptors
+- TCP connection states
+
+## Key Alert Thresholds
+
+| Metric | Alert Threshold |
+|---|---|
+| CPU | > 80% sustained for 5 min |
+| RAM | > 85% used for 5 min |
+| Disk | > 90% used for 5 min |
+
+## Why It Matters
+
+Without Node Exporter, you only see container-level metrics. Node Exporter fills the gap by showing:
+- Whether the **host server itself** is under pressure
+- If disk is filling up due to Docker volumes or logs
+- If network bandwidth is saturated
+- If there are too many open file descriptors (a sign of connection leaks)

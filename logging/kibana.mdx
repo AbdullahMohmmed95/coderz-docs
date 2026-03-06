@@ -1,0 +1,98 @@
+---
+title: "Kibana"
+description: "Search, analyze, and visualize all logs stored in Elasticsearch."
+---
+
+# Kibana
+
+**URL:** http://109.199.120.120:5601
+**Developed by:** Elastic
+
+Kibana is the **search and analytics UI** for Elasticsearch. It provides a powerful interface to search through millions of log entries in seconds, build visualizations, and create dashboards.
+
+## Pre-Built Saved Searches
+
+The following saved searches are auto-created when the stack starts:
+
+| Name | What It Shows |
+|---|---|
+| **Error & Critical Logs** | All log entries with level ERROR or CRITICAL |
+| **Warning Logs** | All WARNING-level log entries |
+| **Docker Container Logs** | All logs from Docker containers |
+| **Coderz Stack Logs** | Logs from coderz-specific services |
+| **Logstash Logs** | Logstash-processed log documents |
+| **System Logs** | Host system logs (syslog, auth, kernel) |
+
+## How to Search Logs
+
+### Basic Search (KQL)
+
+Kibana Query Language (KQL) is used to filter documents:
+
+```kql
+# Find all errors
+log.level: "ERROR"
+
+# Find errors from the .NET API
+log.level: "ERROR" and container.name: "coderz-dotnet-api"
+
+# Find all 500 status codes
+http.response.status_code: 500
+
+# Find slow requests (> 500ms)
+duration_ms > 500
+
+# Find requests from a specific IP
+client.ip: "192.168.1.50"
+
+# Find requests to a specific path
+http.url.path: "/api/orders"
+
+# Combine conditions
+http.response.status_code >= 400 and duration_ms > 1000
+
+# Text search in message field
+message: "NullReferenceException"
+```
+
+### Time Range
+
+Use the time picker in the top right to filter by:
+- Last 15 minutes, 1 hour, 24 hours, 7 days
+- Custom date/time range
+
+### Finding Failed Requests Quickly
+
+1. Go to **Discover**
+2. Select index pattern: `logstash-*`
+3. Search: `http.response.status_code >= 400`
+4. Sort by `@timestamp` descending
+5. Click any document to expand and see all fields
+
+## Dashboards in Kibana
+
+You can build dashboards from saved searches and visualizations:
+
+1. Go to **Dashboards → Create new dashboard**
+2. Add panels:
+   - **Bar chart** — requests per status code
+   - **Line chart** — requests per minute over time
+   - **Data table** — top 10 client IPs
+   - **Metric** — total errors in the last hour
+
+## Index Management
+
+View and manage Elasticsearch indices:
+1. Go to **Stack Management → Index Management**
+2. See all indices, their size, and document count
+3. Delete old indices to free disk space
+
+## Key Views for Operations
+
+| Use Case | Kibana Path |
+|---|---|
+| Search all logs | Discover → `filebeat-*` |
+| Search API request logs | Discover → `logstash-*` |
+| View pre-built searches | Discover → Open |
+| Build a dashboard | Dashboards → Create |
+| Manage indices | Stack Management → Index Management |

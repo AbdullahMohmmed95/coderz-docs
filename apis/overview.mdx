@@ -1,0 +1,63 @@
+---
+title: "APIs Overview"
+description: "All API services in the Coderz Stack — gateway, .NET API, and Python Web API."
+---
+
+# APIs Overview
+
+The Coderz Stack exposes two backend APIs behind an Nginx API Gateway with Redis caching. All API traffic is logged to ELK for full observability.
+
+## API Architecture
+
+```
+Client Request
+      │
+      ▼
+┌─────────────────────────────────┐
+│     Nginx API Gateway :80       │
+│  ┌─────────────────────────┐   │
+│  │  Rate Limiting          │   │
+│  │  Request Routing        │   │
+│  │  Redis Cache Check      │   │
+│  │  Request Logging        │   │
+│  └─────────────────────────┘   │
+└────────┬────────────┬───────────┘
+         │            │
+   ┌─────▼──┐    ┌────▼──────┐
+   │.NET API│    │Python API │
+   │ :5050  │    │  :8888    │
+   └─────┬──┘    └────┬──────┘
+         │            │
+         └─────┬──────┘
+               │
+         ┌─────▼──────┐
+         │ PostgreSQL  │
+         │   :5433     │
+         └────────────┘
+               │
+         ┌─────▼──────┐
+         │   Redis     │
+         │  (cache)    │
+         └────────────┘
+```
+
+## Services
+
+| Service | Port | Language | Purpose |
+|---|---|---|---|
+| Nginx API Gateway | 80 | — | Routing, caching, rate limiting |
+| .NET API | 5050 | C# / ASP.NET | Main REST API |
+| Python Web API | 8888 | Python / Flask | Utility API |
+| Redis | 6379 | — | Caching & rate limiting |
+| PostgreSQL | 5433 | — | Primary database |
+
+## Request Lifecycle
+
+1. Client sends request to port 80
+2. Nginx checks Redis cache — if hit, returns immediately (< 1ms)
+3. If miss, Nginx routes to appropriate backend
+4. Backend processes request, queries PostgreSQL if needed
+5. Backend returns response to Nginx
+6. Nginx stores response in Redis cache (with TTL)
+7. Nginx returns response to client
+8. Request is logged to Logstash → Elasticsearch → Kibana

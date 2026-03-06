@@ -1,0 +1,107 @@
+---
+title: "PostgreSQL"
+description: "Primary relational database for the Coderz Stack APIs."
+---
+
+# PostgreSQL
+
+**Port:** 5433 (mapped from internal 5432)
+**Version:** PostgreSQL 15+
+
+PostgreSQL is the **primary database** for all Coderz API services. It runs as a Docker container with persistent volume storage, managed via pgAdmin.
+
+## Databases
+
+| Database | User | Password | Used By |
+|---|---|---|---|
+| `coderapi` | `coderapi` | `coderapi_2024` | .NET API |
+| `postgres` | `postgres` | (default) | Admin / system |
+
+## Connecting
+
+**From the host server:**
+```bash
+psql -h localhost -p 5433 -U coderapi -d coderapi
+```
+
+**From inside Docker network (by container name):**
+```bash
+psql -h coderz-db -p 5432 -U coderapi -d coderapi
+```
+
+**Connection string (.NET):**
+```
+Host=coderz-db;Port=5432;Database=coderapi;Username=coderapi;Password=coderapi_2024
+```
+
+**Connection string (Python):**
+```python
+postgresql://coderapi:coderapi_2024@coderz-db:5432/coderapi
+```
+
+## Common Operations
+
+```sql
+-- List all tables
+\dt
+
+-- Check database size
+SELECT pg_size_pretty(pg_database_size('coderapi'));
+
+-- Check table sizes
+SELECT
+  table_name,
+  pg_size_pretty(pg_total_relation_size(table_name::text)) AS size
+FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY pg_total_relation_size(table_name::text) DESC;
+
+-- Check active connections
+SELECT count(*) FROM pg_stat_activity WHERE state = 'active';
+
+-- Find slow queries (> 1 second)
+SELECT pid, now() - query_start AS duration, query
+FROM pg_stat_activity
+WHERE state = 'active' AND (now() - query_start) > interval '1 second';
+
+-- Kill a slow query
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = <pid>;
+```
+
+## Backup
+
+```bash
+# Backup the coderapi database
+docker exec coderz-db pg_dump -U coderapi coderapi > /opt/coderz/backups/coderapi_$(date +%Y%m%d).sql
+
+# Restore from backup
+docker exec -i coderz-db psql -U coderapi coderapi < /opt/coderz/backups/coderapi_20260306.sql
+```
+
+## Monitoring PostgreSQL in Grafana
+
+The **.NET API Full Stack** dashboard includes PostgreSQL panels showing:
+- Active connections count
+- Query rate (queries per second)
+- Cache hit ratio
+- Table sizes over time
+
+These are collected by the `postgres_exporter` (if enabled) or via the .NET API's built-in database metrics.
+
+## Performance Tips
+
+| Setting | Default | Recommended for 4GB RAM server |
+|---|---|---|
+| `shared_buffers` | 128MB | 1GB (25% of RAM) |
+| `work_mem` | 4MB | 64MB |
+| `max_connections` | 100 | 50–100 |
+| `effective_cache_size` | 4GB | 3GB |
+
+Add to `docker-compose.yml`:
+```yaml
+command: >
+  postgres
+  -c shared_buffers=1GB
+  -c work_mem=64MB
+  -c effective_cache_size=3GB
+```

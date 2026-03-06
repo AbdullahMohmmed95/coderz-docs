@@ -1,0 +1,74 @@
+---
+title: "pgAdmin"
+description: "Web-based PostgreSQL management UI — browse tables, run queries, manage databases."
+---
+
+# pgAdmin 4
+
+**URL:** http://109.199.120.120:5080
+**Credentials:** admin@coderz.dev / coderz123
+**Version:** pgAdmin 4 (latest)
+
+pgAdmin is the official **web-based administration UI for PostgreSQL**. It provides a visual interface to manage databases, tables, users, and run SQL queries — no command-line knowledge required.
+
+## Pre-Configured Database Connections
+
+pgAdmin is pre-loaded with both database servers via `servers.json`:
+
+| Server Name | Host | Port | Database |
+|---|---|---|---|
+| coderz-db | coderz-db | 5432 | coderapi |
+| postgres | coderz-db | 5432 | postgres |
+
+No manual connection setup needed — databases appear immediately on login.
+
+## What You Can Do in pgAdmin
+
+**Browse data:**
+- Expand server → Databases → Schema → Tables
+- Right-click any table → View/Edit Data → All Rows
+
+**Run SQL queries:**
+- Select a database → Tools → Query Tool
+- Type and execute any SQL
+
+**Monitor database:**
+- Dashboard → Server Activity (active queries, locks, connections)
+- Statistics tab on any table (row count, size, bloat)
+
+**Manage users:**
+- Login/Group Roles → Create new users
+- Set permissions per database
+
+**Backup and restore:**
+- Right-click database → Backup → Select format (custom, SQL)
+- Right-click database → Restore
+
+## Useful Built-In Queries
+
+```sql
+-- Top 10 largest tables
+SELECT schemaname, tablename,
+       pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS total_size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC
+LIMIT 10;
+
+-- Find missing indexes (sequential scans)
+SELECT relname, seq_scan, idx_scan
+FROM pg_stat_user_tables
+WHERE seq_scan > idx_scan
+ORDER BY seq_scan DESC;
+
+-- Check cache hit ratio (should be > 99%)
+SELECT
+  sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) AS cache_hit_ratio
+FROM pg_statio_user_tables;
+```
+
+## Tips
+
+- pgAdmin runs in **desktop mode** (no multi-user login) — anyone who accesses port 5080 is automatically logged in as admin
+- The interface auto-saves query history in the Query Tool
+- Use **Explain Analyze** (Shift+F7) to see query execution plans and optimize slow queries

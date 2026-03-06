@@ -1,0 +1,86 @@
+---
+title: "Elasticsearch"
+description: "Full-text search and log storage engine powering the ELK stack."
+---
+
+# Elasticsearch
+
+**Port:** 9200 (internal)
+**Developed by:** Elastic
+
+Elasticsearch is a **distributed search and analytics engine** built on Apache Lucene. In the Coderz Stack, it serves as the storage and indexing backend for all logs shipped by Filebeat and processed by Logstash.
+
+## How It Works
+
+Elasticsearch receives logs from Logstash and:
+1. **Parses** each log document (JSON)
+2. **Indexes** every field for full-text search
+3. **Stores** documents in time-based indices (e.g., `filebeat-2026.03.06`)
+4. **Serves queries** from Kibana in milliseconds
+
+## Indices in Use
+
+| Index Pattern | Source | Contains |
+|---|---|---|
+| `filebeat-*` | Filebeat → ES direct | System logs, Docker container logs |
+| `logstash-*` | Logstash → ES | Enriched and parsed logs |
+
+## Key Concepts
+
+**Document** — A single log entry stored as JSON:
+```json
+{
+  "@timestamp": "2026-03-06T20:00:00.000Z",
+  "message": "GET /api/items 200 45ms",
+  "container.name": "coderz-dotnet-api",
+  "http.method": "GET",
+  "http.status_code": 200,
+  "duration_ms": 45,
+  "client.ip": "192.168.1.100"
+}
+```
+
+**Index** — A collection of documents (like a database table).
+
+**Shard** — Elasticsearch splits indices into shards for performance. The Coderz setup uses single-node mode (1 shard, 0 replicas).
+
+## Checking Cluster Health
+
+```bash
+curl http://localhost:9200/_cluster/health?pretty
+```
+
+Expected output:
+```json
+{
+  "status": "green",
+  "number_of_nodes": 1,
+  "active_shards": 10
+}
+```
+
+## Useful API Endpoints
+
+```bash
+# List all indices
+curl http://localhost:9200/_cat/indices?v
+
+# Check index size and document count
+curl http://localhost:9200/_cat/indices/filebeat-*?v
+
+# Get the 5 most recent log documents
+curl "http://localhost:9200/filebeat-*/_search?size=5&sort=@timestamp:desc&pretty"
+```
+
+## Storage Management
+
+Elasticsearch indices grow continuously. To manage storage:
+
+```bash
+# Delete logs older than 30 days (example for specific index)
+curl -X DELETE "http://localhost:9200/filebeat-2026.02.*"
+```
+
+<Warning>
+  In a production environment, use **Index Lifecycle Management (ILM)** to automatically delete old indices. Without this, Elasticsearch will fill your disk over time.
+</Warning>

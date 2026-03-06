@@ -1,0 +1,105 @@
+---
+title: "Quickstart"
+description: "Get up and running with the Coderz Stack in minutes."
+---
+
+# Quickstart
+
+## Prerequisites
+
+- SSH access to `109.199.120.120`
+- Docker and Docker Compose installed
+- Root or sudo access
+
+## Start the Full Stack
+
+```bash
+cd /opt/coderz
+docker compose up -d
+```
+
+## Verify Everything is Running
+
+```bash
+docker compose ps
+```
+
+You should see all containers with status `running` or `healthy`.
+
+## Access Services
+
+| Service | URL | Credentials |
+|---|---|---|
+| Grafana | http://109.199.120.120:3000 | admin / coderz123 |
+| Kibana | http://109.199.120.120:5601 | — |
+| Prefect UI | http://109.199.120.120:4200 | — |
+| pgAdmin | http://109.199.120.120:5080 | admin@coderz.dev / coderz123 |
+| k6 Runner | http://109.199.120.120:9000 | — |
+| Prometheus | http://109.199.120.120:9090 | — |
+| Docs | http://109.199.120.120:3333 | — |
+
+## Common Operations
+
+<AccordionGroup>
+  <Accordion title="Restart a single service">
+    ```bash
+    cd /opt/coderz
+    docker compose restart grafana
+    ```
+  </Accordion>
+
+  <Accordion title="View logs of a service">
+    ```bash
+    docker compose logs -f grafana
+    docker compose logs -f coderz-dotnet-api --tail=100
+    ```
+  </Accordion>
+
+  <Accordion title="Stop the entire stack">
+    ```bash
+    cd /opt/coderz
+    docker compose down
+    ```
+  </Accordion>
+
+  <Accordion title="Update a service image">
+    ```bash
+    cd /opt/coderz
+    docker compose pull grafana
+    docker compose up -d grafana
+    ```
+  </Accordion>
+
+  <Accordion title="Check disk usage">
+    ```bash
+    docker system df
+    df -h
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Config File Locations
+
+| Component | Config Path |
+|---|---|
+| Docker Compose | `/opt/coderz/docker-compose.yml` |
+| Prometheus | `/opt/coderz/configs/prometheus/prometheus.yml` |
+| Grafana Datasources | `/opt/coderz/configs/grafana/provisioning/datasources/` |
+| Grafana Dashboards | `/opt/coderz/configs/grafana/provisioning/dashboards/` |
+| Grafana Alerts | `/opt/coderz/configs/grafana/provisioning/alerting/` |
+| Loki | `/opt/coderz/configs/loki/loki-config.yml` |
+| Promtail | `/opt/coderz/configs/promtail/promtail-config.yml` |
+| Nginx | `/opt/coderz/configs/nginx/nginx.conf` |
+| Prefect Flows | `/opt/coderz/configs/prefect/flows/` |
+
+## Mintlify Docs Server
+
+The docs server runs as a systemd service:
+
+```bash
+systemctl status mintlify
+systemctl restart mintlify
+journalctl -u mintlify -f
+```
+
+Docs files are in `/opt/mintlify-docs/`.

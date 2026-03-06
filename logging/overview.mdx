@@ -1,0 +1,81 @@
+---
+title: "Logging Overview"
+description: "Two parallel log pipelines for fast querying and deep analytics."
+---
+
+# Logging Overview
+
+The Coderz Stack runs **two parallel log pipelines**. Each has different strengths and serves different use cases.
+
+## Pipeline 1: Loki + Promtail (Fast & Simple)
+
+```
+Docker container stdout/stderr
+        │
+        ▼
+   Promtail (log collector)
+        │
+        ▼
+     Loki :3100 (log storage)
+        │
+        ▼
+   Grafana (log viewer)
+```
+
+**Best for:**
+- Live log tailing during incidents
+- Correlating logs with metrics on the same Grafana dashboard
+- Simple keyword searches
+- Low resource usage
+
+## Pipeline 2: ELK Stack (Deep Analytics)
+
+```
+Docker container logs + System logs
+        │
+        ▼
+   Filebeat (log shipper)
+        │
+        ▼
+  Logstash :5044 (processing & enrichment)
+        │
+        ▼
+Elasticsearch :9200 (indexed storage)
+        │
+        ▼
+   Kibana :5601 (search & analytics)
+```
+
+**Best for:**
+- Complex log searches with filters
+- Structured log parsing (JSON, grok patterns)
+- API request logs with IP, duration, status codes
+- Building saved searches and visualizations
+- Compliance and audit trails
+
+## Which One to Use?
+
+| Scenario | Use |
+|---|---|
+| "Show me logs from the last 5 minutes" | Loki in Grafana |
+| "Find all 500 errors from the .NET API today" | Kibana |
+| "Which IP hit the API most in the last hour?" | Kibana |
+| "Correlate a CPU spike with application logs" | Loki in Grafana |
+| "Show slow queries that took > 1 second" | Kibana |
+| "Live log stream during a deployment" | Loki in Grafana |
+
+## Kibana Data Views
+
+| Index Pattern | Data |
+|---|---|
+| `filebeat-*` | System logs + all Docker container logs |
+| `logstash-*` | Logstash-processed and enriched logs |
+
+## Pre-Built Saved Searches in Kibana
+
+- Error & Critical Logs
+- Warning Logs
+- Docker Container Logs
+- Coderz Stack Logs
+- Logstash Logs
+- System Logs

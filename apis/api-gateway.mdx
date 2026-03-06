@@ -1,0 +1,251 @@
+---
+title: "API Gateway + Redis"
+description: "Nginx-based API Gateway with Redis caching, rate limiting, and request logging."
+---
+
+# API Gateway with Redis
+
+The Coderz Stack uses **Nginx as an API Gateway** combined with **Redis** as a caching and rate-limiting backend. This sits in front of all backend APIs and handles:
+
+- **Routing** — directs requests to the correct backend service
+- **Caching** — stores responses in Redis to avoid redundant backend calls
+- **Rate Limiting** — prevents abuse and protects backend services
+- **Request Logging** — logs every request with full context for Kibana
+- **Load Balancing** — distributes traffic across multiple API replicas
+
+## Why an API Gateway?
+
+Without a gateway, each client talks directly to the backend APIs. This means:
+- No caching — every request hits the database
+- No rate limiting — a single client can overwhelm the API
+- No unified logging — logs are scattered across services
+- No central security enforcement
+
+With the gateway, all of this is handled in one place.
+
+## Redis: What It Does
+
+**Redis** (Remote Dictionary Server) is an in-memory data store used for:
+
+| Use Case | How |
+|---|---|
+| **Response Cache** | Store API responses with a TTL (e.g., 60s) |
+| **Rate Limiting** | Count requests per IP, block when threshold exceeded |
+| **Session Storage** | Store user sessions (optional) |
+| **Queue** | Background job queuing (optional) |
+
+### Cache Hit vs Miss
+
+```
+Request → Nginx → Check Redis
+                    │
+            ┌───────┴────────┐
+            │                │
+          HIT               MISS
+            │                │
+     Return cached      Forward to API
+     response           → Get response
+     (< 1ms)            → Store in Redis
+                        → Return to client
+                        (~50–500ms)
+```
+
+A cache hit ratio of **70–80%** for read-heavy APIs means 70-80% of database queries are eliminated.
+
+## Nginx Gateway Configuration
+
+Add to `/opt/coderz/configs/nginx/nginx.conf`:
+
+```nginx
+# Define backend API upstreams
+upstream dotnet_api {
+    server coderz-dotnet-api:8080;
+    keepalive 32;
+}
+
+upstream web_api {
+    server coderz-web-api:8888;
+    keepalive 32;
+}
+
+# Rate limiting zones (stored in shared memory)
+# 10 requests per second per IP, burst of 20
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+
+# Cache zone — 100MB in memory, 1GB on disk, 60min inactive TTL
+proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=api_cache:100m
+                 inactive=60m max_size=1g use_temp_path=off;
+
+server {
+    listen 80;
+
+    # --- .NET API ---
+    location /api/ {
+        # Rate limiting
+        limit_req zone=api_limit burst=20 nodelay;
+        limit_req_status 429;
+
+        # Caching (only cache GET requests)
+        proxy_cache api_cache;
+        proxy_cache_methods GET;
+        proxy_cache_valid 200 60s;       # Cache 200 responses for 60 seconds
+        proxy_cache_valid 404 10s;       # Cache 404s for 10 seconds
+        proxy_cache_bypass $http_pragma; # Allow cache bypass with Pragma: no-cache
+        add_header X-Cache-Status $upstream_cache_status; # HIT or MISS in response header
+
+        # Proxy settings
+        proxy_pass http://dotnet_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Logging
+        access_log /var/log/nginx/api_access.log combined;
+        error_log  /var/log/nginx/api_error.log warn;
+    }
+
+    # --- Python Web API ---
+    location /web-api/ {
+        limit_req zone=api_limit burst=10 nodelay;
+
+        proxy_cache api_cache;
+        proxy_cache_methods GET;
+        proxy_cache_valid 200 30s;
+        add_header X-Cache-Status $upstream_cache_status;
+
+        rewrite ^/web-api/(.*) /$1 break;
+        proxy_pass http://web_api;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+## Adding Redis to Docker Compose
+
+Add to `/opt/coderz/docker-compose.yml`:
+
+```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: coderz-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - coderz-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  redis-data:
+```
+
+**`maxmemory-policy: allkeys-lru`** means when Redis is full, it evicts the **least recently used** key — perfect for a cache.
+
+## Using Redis for Rate Limiting with Nginx + Lua
+
+For advanced Redis-backed rate limiting (using `openresty` or `nginx-lua`):
+
+```lua
+-- Rate limit: 100 requests per minute per IP
+local redis = require "resty.redis"
+local red = redis:new()
+red:connect("redis", 6379)
+
+local key = "rate_limit:" .. ngx.var.remote_addr
+local count = red:incr(key)
+
+if count == 1 then
+    red:expire(key, 60)  -- reset window every 60 seconds
+end
+
+if count > 100 then
+    ngx.status = 429
+    ngx.say('{"error": "Rate limit exceeded. Try again in 60 seconds."}')
+    ngx.exit(429)
+end
+```
+
+## Redis CLI — Checking Cache
+
+```bash
+# Connect to Redis
+docker exec -it coderz-redis redis-cli
+
+# See all cached keys
+KEYS *
+
+# Check a specific key's value
+GET "api_cache:/api/items?page=1"
+
+# See TTL remaining on a key (seconds)
+TTL "api_cache:/api/items?page=1"
+
+# See total cache memory usage
+INFO memory
+
+# See cache hit/miss stats
+INFO stats | grep keyspace
+```
+
+## Nginx Log Format for Kibana
+
+Use this custom Nginx log format to capture all fields needed for Kibana API monitoring:
+
+```nginx
+log_format api_json escape=json
+  '{'
+    '"@timestamp":"$time_iso8601",'
+    '"client.ip":"$remote_addr",'
+    '"http.method":"$request_method",'
+    '"http.url.path":"$uri",'
+    '"http.url.query":"$args",'
+    '"http.response.status_code":$status,'
+    '"duration_ms":$request_time,'
+    '"http.request.bytes":$request_length,'
+    '"http.response.bytes":$bytes_sent,'
+    '"cache_status":"$upstream_cache_status",'
+    '"upstream":"$upstream_addr",'
+    '"http.user_agent":"$http_user_agent",'
+    '"service.name":"nginx-gateway"'
+  '}';
+
+access_log /var/log/nginx/api_json.log api_json;
+```
+
+This produces structured JSON logs that Filebeat ships to Logstash → Elasticsearch → Kibana, giving you **every request** with IP, path, query, duration, and cache status.
+
+## Rate Limit Response
+
+When a client exceeds the rate limit:
+
+```json
+HTTP 429 Too Many Requests
+
+{
+  "error": "Rate limit exceeded",
+  "retry_after": 60,
+  "message": "You have exceeded 10 requests per second. Please slow down."
+}
+```
+
+## Performance Impact
+
+With Redis caching enabled:
+
+| Scenario | Without Cache | With Cache (Hit) |
+|---|---|---|
+| GET /api/items | ~150ms (DB query) | ~1ms |
+| GET /api/products | ~200ms (DB query) | ~1ms |
+| POST /api/orders | ~250ms (write) | Not cached (write ops) |
+
+Read endpoints (GET) benefit from caching. Write endpoints (POST/PUT/DELETE) bypass the cache automatically.

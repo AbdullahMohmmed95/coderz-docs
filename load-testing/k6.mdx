@@ -1,0 +1,127 @@
+---
+title: "k6 Load Testing"
+description: "Run load, stress, spike, and ramp-up tests against the Coderz APIs from a web UI."
+---
+
+# k6 Load Testing
+
+**URL:** http://109.199.120.120:9000
+**Source:** `/opt/coderz/configs/k6-runner/app.py`
+
+k6 is a **modern load testing tool** built for developers. In the Coderz Stack, it runs with a web UI that lets you launch load tests against any service without writing code. Results appear in real-time in Grafana.
+
+## What Is Load Testing?
+
+Load testing simulates multiple concurrent users hitting an API to:
+- **Find the breaking point** — at what request rate does the API fail?
+- **Measure performance** — response time at 100, 500, 1000 users
+- **Catch regressions** — is the new deployment slower than the old one?
+- **Validate infrastructure** — can the server handle peak traffic?
+
+## Available Test Scenarios
+
+### Generic Scenarios (any service)
+
+| Scenario | Description |
+|---|---|
+| `constant` | Fixed number of virtual users for a set duration |
+| `rampup` | Gradually increase users from 0 to max |
+| `spike` | Sudden spike to max users, then drop back |
+| `stress` | Step-by-step ramp to find breaking point |
+
+### .NET API Scenarios
+
+| Scenario | Description |
+|---|---|
+| `dotnet-items` | GET /api/items with pagination — simulates read traffic |
+| `dotnet-crud` | GET + POST + PUT cycle — simulates full CRUD operations |
+| `dotnet-mixed` | All endpoints mixed — simulates realistic production traffic |
+| `dotnet-stress` | Step ramp-up: 10 → 50 → 100 → 200 users — find limits |
+
+## Running a Test
+
+1. Go to http://109.199.120.120:9000
+2. Select a **Scenario** from the dropdown
+3. Set parameters (VUs, duration)
+4. Click **Run**
+5. Watch results in the k6 UI and Grafana
+
+## Understanding k6 Metrics
+
+| Metric | Description | Good Value |
+|---|---|---|
+| `http_req_duration` | Total request time (P95) | < 500ms |
+| `http_req_failed` | % of failed requests | < 1% |
+| `http_reqs` | Total requests sent | Higher = better throughput |
+| `vus` | Active virtual users | As configured |
+| `iterations` | Completed test iterations | — |
+
+## k6 Test Script (CRUD Scenario)
+
+```javascript
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+const BASE_URL = 'http://coderz-dotnet-api:8080';
+
+export const options = {
+  stages: [
+    { duration: '30s', target: 10 },   // Ramp up to 10 users
+    { duration: '1m',  target: 50 },   // Ramp up to 50 users
+    { duration: '30s', target: 100 },  // Ramp up to 100 users
+    { duration: '1m',  target: 100 },  // Stay at 100 users
+    { duration: '30s', target: 0 },    // Ramp down
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<500'],   // 95% of requests < 500ms
+    http_req_failed: ['rate<0.01'],     // Error rate < 1%
+  },
+};
+
+export default function () {
+  // GET items
+  const list = http.get(`${BASE_URL}/api/items?page=1`);
+  check(list, { 'list status 200': (r) => r.status === 200 });
+
+  // POST new item
+  const create = http.post(`${BASE_URL}/api/items`,
+    JSON.stringify({ name: 'test-item', value: 42 }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  check(create, { 'create status 201': (r) => r.status === 201 });
+  const id = create.json('id');
+
+  // PUT update item
+  const update = http.put(`${BASE_URL}/api/items/${id}`,
+    JSON.stringify({ name: 'updated-item', value: 99 }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  check(update, { 'update status 200': (r) => r.status === 200 });
+
+  sleep(1);
+}
+```
+
+## Viewing Results in Grafana
+
+k6 results are streamed to Prometheus (via Prometheus remote write or statsd) and displayed in Grafana. During a test run:
+
+1. Open Grafana → **Coderz Stack Home** or **.NET API Full Stack**
+2. Watch real-time:
+   - Request rate spike
+   - Response time increase
+   - Error rate
+   - CPU and RAM spikes on the server
+
+This gives you a **complete picture**: both the load test results and the server's reaction to that load.
+
+## Interpreting Results for Capacity Planning
+
+```
+Baseline (10 VUs):   P95 = 85ms,  Error rate = 0%
+Medium   (50 VUs):   P95 = 180ms, Error rate = 0%
+High    (100 VUs):   P95 = 450ms, Error rate = 0.2%
+Stress  (200 VUs):   P95 = 1200ms, Error rate = 8%   ← Breaking point
+```
+
+**Conclusion:** This API can handle ~100 concurrent users with acceptable performance. Beyond 150 users, consider horizontal scaling (add more API replicas behind the gateway).

@@ -1,0 +1,79 @@
+---
+title: "Grafana"
+description: "Unified dashboards, alerting, and visualization for all stack metrics and logs."
+---
+
+# Grafana
+
+**URL:** http://109.199.120.120:3000
+**Credentials:** admin / coderz123
+
+Grafana is the **central visualization layer** of the Coderz Stack. It connects to multiple data sources — Prometheus (metrics) and Loki (logs) — and provides pre-built dashboards for every component in the stack.
+
+## What It Does
+
+- Displays real-time and historical metrics from all services
+- Provides searchable log viewers (via Loki)
+- Fires alerts when thresholds are exceeded
+- Sends alert notifications via email
+
+## Pre-Provisioned Dashboards
+
+All dashboards are automatically loaded when the stack starts — no manual setup needed.
+
+| Dashboard | Description |
+|---|---|
+| **Coderz Stack Home** | All-in-one overview: CPU, RAM, Disk, top Docker containers |
+| **Server Overview** | Node Exporter: CPU by mode, load average, RAM, disk, network, processes, FDs, TCP |
+| **Docker Containers** | cAdvisor: per-container CPU, memory, network I/O |
+| **Container Logs** | Loki: live log stream from all Docker containers |
+| **.NET API Full Stack** | Prometheus request metrics + PostgreSQL stats + live request log table |
+| **Prefect Flows** | Loki-based: flow completions, failures, alert log, live flow logs |
+| **Alerts Status** | CPU/RAM/Disk stat panels + timeseries alert history |
+| **Kubernetes Overview** | k3s pods, nodes, deployments via kube-state-metrics |
+
+## Alert Rules
+
+Grafana evaluates these alert rules continuously:
+
+| Alert | Condition | Evaluation Period |
+|---|---|---|
+| High CPU | CPU usage > 80% | 5 minutes |
+| High RAM | Memory usage > 85% | 5 minutes |
+| High Disk | Disk usage > 90% | 5 minutes |
+| Container Count Low | Running containers < 6 | 2 minutes |
+
+When any alert fires, an email is sent to `aboodm7med1995@gmail.com` via Postfix SMTP.
+
+## Data Sources
+
+| Source | Type | URL |
+|---|---|---|
+| Prometheus | Prometheus | http://prometheus:9090 |
+| Loki | Loki | http://loki:3100 |
+
+## Adding a New Dashboard
+
+1. Go to **Dashboards → New → New Dashboard**
+2. Add panels using PromQL (for metrics) or LogQL (for logs)
+3. Save the dashboard
+4. To persist it across restarts, export as JSON and place in `/opt/coderz/configs/grafana/provisioning/dashboards/`
+
+## Useful PromQL Queries
+
+```promql
+# CPU usage %
+100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+# RAM usage %
+(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+
+# Disk usage %
+(1 - node_filesystem_free_bytes / node_filesystem_size_bytes) * 100
+
+# HTTP request rate (.NET API)
+rate(http_requests_received_total[1m])
+
+# HTTP error rate
+rate(http_requests_received_total{code=~"5.."}[1m])
+```

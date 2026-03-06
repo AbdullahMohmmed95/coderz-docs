@@ -1,0 +1,89 @@
+---
+title: "Nginx"
+description: "Reverse proxy, API gateway, and landing page server for the Coderz Stack."
+---
+
+# Nginx
+
+**Port:** 80
+**Config:** `/opt/coderz/configs/nginx/nginx.conf`
+**HTML:** `/opt/coderz/configs/nginx/html/index.html`
+
+Nginx serves three roles in the Coderz Stack:
+
+1. **Landing Page** — Serves the Coderz home page on port 80
+2. **Reverse Proxy** — Routes traffic to backend services
+3. **API Gateway** — Rate limiting, caching, and request logging (with Redis)
+
+## Current Configuration
+
+```nginx
+server {
+    listen 80;
+
+    # Landing page
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
+}
+```
+
+## Adding Reverse Proxy Routes
+
+To expose a service through Nginx (e.g., Grafana at `/grafana`):
+
+```nginx
+location /grafana/ {
+    proxy_pass http://grafana:3000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+## Reload Config Without Downtime
+
+```bash
+docker exec coderz-nginx nginx -s reload
+```
+
+## Access Logs
+
+```bash
+# Live Nginx access log
+docker exec coderz-nginx tail -f /var/log/nginx/access.log
+
+# Or via Docker logs
+docker logs coderz-nginx -f
+```
+
+## Custom Log Format for Kibana
+
+To ship structured Nginx logs to ELK:
+
+```nginx
+log_format json_combined escape=json
+  '{"@timestamp":"$time_iso8601",'
+  '"client.ip":"$remote_addr",'
+  '"http.method":"$request_method",'
+  '"http.url.path":"$uri",'
+  '"http.url.query":"$args",'
+  '"http.response.status_code":$status,'
+  '"duration_ms":$request_time,'
+  '"http.user_agent":"$http_user_agent"}';
+
+access_log /var/log/nginx/access.json.log json_combined;
+```
+
+## Security Headers
+
+Add to the server block for production hardening:
+
+```nginx
+add_header X-Frame-Options "SAMEORIGIN";
+add_header X-Content-Type-Options "nosniff";
+add_header X-XSS-Protection "1; mode=block";
+add_header Referrer-Policy "strict-origin-when-cross-origin";
+add_header Content-Security-Policy "default-src 'self'";
+```

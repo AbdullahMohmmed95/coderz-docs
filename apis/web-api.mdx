@@ -1,0 +1,46 @@
+---
+title: "Python Web API"
+description: "Coderz utility API built with Python — monitored and logged."
+---
+
+# Python Web API
+
+**URL:** http://109.199.120.120:8888
+**Technology:** Python (Flask/FastAPI)
+
+The Python Web API is a utility backend service in the Coderz Stack. It handles lightweight API operations, and like the .NET API, is fully monitored via Prometheus and logged to ELK.
+
+## Health Check
+
+```bash
+curl http://109.199.120.120:8888/health
+```
+
+## Structured Logging
+
+The Python API writes structured JSON logs to stdout, which are captured by Filebeat and shipped to Logstash → Elasticsearch → Kibana.
+
+Example log entry:
+```json
+{
+  "@timestamp": "2026-03-06T20:20:00Z",
+  "level": "INFO",
+  "client.ip": "10.0.0.5",
+  "http.method": "GET",
+  "http.url.path": "/api/data",
+  "http.url.query": "type=summary",
+  "http.response.status_code": 200,
+  "duration_ms": 42,
+  "service.name": "coderz-web-api"
+}
+```
+
+## View Logs in Kibana
+
+```kql
+service.name: "coderz-web-api"
+```
+
+## Monitoring in Grafana
+
+The Python Web API metrics are scraped by Prometheus via its `/metrics` endpoint and displayed alongside the .NET API in the **Coderz Stack Home** dashboard.

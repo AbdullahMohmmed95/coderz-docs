@@ -1,0 +1,301 @@
+---
+title: "API Request Logging"
+description: "How every API request is captured with IP, path, query, duration, errors, and failure location — visible in Kibana."
+---
+
+# API Request Logging in ELK + Kibana
+
+Every request made to any API in the Coderz Stack is captured with **full context** and indexed in Elasticsearch for search and analysis in Kibana. This includes the client IP, request path, query parameters, response duration, status code, and — if the request failed — the exact error and the location in code where it failed.
+
+## What Is Captured Per Request
+
+| Field | Description | Example |
+|---|---|---|
+| `@timestamp` | When the request was received | `2026-03-06T20:15:33Z` |
+| `client.ip` | IP address of the caller | `192.168.1.50` |
+| `http.method` | HTTP verb | `GET`, `POST`, `PUT`, `DELETE` |
+| `http.url.path` | Endpoint path | `/api/orders` |
+| `http.url.query` | Query string parameters | `page=2&status=active` |
+| `http.response.status_code` | HTTP status code | `200`, `400`, `500` |
+| `duration_ms` | Total request processing time | `87` |
+| `log.level` | Severity | `INFO`, `WARN`, `ERROR` |
+| `error.type` | Exception class (if failed) | `NullReferenceException` |
+| `error.message` | Human-readable error | `Object reference not set...` |
+| `error.location` | File and line number | `OrderService.cs:142` |
+| `error.stack_trace` | Full stack trace | `at OrderService.Process()...` |
+| `service.name` | Which API service | `coderz-dotnet-api` |
+| `db.query` | SQL query executed (if any) | `SELECT * FROM orders WHERE...` |
+| `db.duration_ms` | Query execution time | `34` |
+
+## Log Flow: From API to Kibana
+
+```
+API handles request
+       │
+       ▼
+Structured JSON log written to stdout
+       │
+       ▼
+Filebeat picks up from Docker log driver
+       │
+       ▼
+Logstash receives, parses, and enriches
+       │
+       ▼
+Elasticsearch indexes every field
+       │
+       ▼
+Kibana — searchable in seconds
+```
+
+## Implementing Structured Logging in the .NET API
+
+Add this middleware to capture every request automatically:
+
+```csharp
+// Startup.cs or Program.cs
+app.Use(async (context, next) =>
+{
+    var stopwatch = Stopwatch.StartNew();
+    var requestPath = context.Request.Path;
+    var queryString = context.Request.QueryString.Value;
+    var method = context.Request.Method;
+    var clientIp = context.Connection.RemoteIpAddress?.ToString();
+
+    try
+    {
+        await next();
+        stopwatch.Stop();
+
+        _logger.LogInformation(
+            "REQUEST {Method} {Path}{Query} | IP: {ClientIp} | Status: {StatusCode} | Duration: {Duration}ms",
+            method,
+            requestPath,
+            queryString,
+            clientIp,
+            context.Response.StatusCode,
+            stopwatch.ElapsedMilliseconds
+        );
+    }
+    catch (Exception ex)
+    {
+        stopwatch.Stop();
+        _logger.LogError(ex,
+            "FAILED {Method} {Path}{Query} | IP: {ClientIp} | Duration: {Duration}ms | Error: {ErrorType} at {Location}",
+            method,
+            requestPath,
+            queryString,
+            clientIp,
+            stopwatch.ElapsedMilliseconds,
+            ex.GetType().Name,
+            $"{ex.TargetSite?.DeclaringType?.Name}.cs:{new StackTrace(ex, true).GetFrame(0)?.GetFileLineNumber()}"
+        );
+        throw;
+    }
+});
+```
+
+**Output JSON log (Serilog with structured output):**
+```json
+{
+  "@timestamp": "2026-03-06T20:17:01Z",
+  "level": "ERROR",
+  "message": "FAILED POST /api/orders?ref=checkout | IP: 10.0.0.22 | Duration: 234ms",
+  "http": {
+    "method": "POST",
+    "url": { "path": "/api/orders", "query": "ref=checkout" },
+    "response": { "status_code": 500 }
+  },
+  "client": { "ip": "10.0.0.22" },
+  "duration_ms": 234,
+  "error": {
+    "type": "NullReferenceException",
+    "message": "Object reference not set to an instance of an object",
+    "location": "OrderService.cs:142",
+    "stack_trace": "at OrderService.ProcessOrder() in OrderService.cs:line 142\n..."
+  },
+  "service": { "name": "coderz-dotnet-api" }
+}
+```
+
+## Implementing Structured Logging in the Python API
+
+```python
+import logging
+import time
+import json
+from functools import wraps
+from flask import request, g
+import traceback
+
+def log_request(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        start = time.time()
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        method = request.method
+        path = request.path
+        query = request.query_string.decode()
+
+        try:
+            response = f(*args, **kwargs)
+            duration = int((time.time() - start) * 1000)
+
+            logging.info(json.dumps({
+                "level": "INFO",
+                "http": {
+                    "method": method,
+                    "url": {"path": path, "query": query},
+                    "response": {"status_code": response.status_code}
+                },
+                "client": {"ip": client_ip},
+                "duration_ms": duration,
+                "service": {"name": "coderz-web-api"}
+            }))
+            return response
+
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            tb = traceback.extract_tb(e.__traceback__)
+            last_frame = tb[-1] if tb else None
+
+            logging.error(json.dumps({
+                "level": "ERROR",
+                "http": {
+                    "method": method,
+                    "url": {"path": path, "query": query},
+                    "response": {"status_code": 500}
+                },
+                "client": {"ip": client_ip},
+                "duration_ms": duration,
+                "error": {
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "location": f"{last_frame.filename}:{last_frame.lineno}" if last_frame else "unknown",
+                    "function": last_frame.name if last_frame else "unknown"
+                },
+                "service": {"name": "coderz-web-api"}
+            }))
+            raise
+    return decorated
+```
+
+## Logstash Pipeline for API Logs
+
+Add this to your Logstash pipeline config to parse API JSON logs:
+
+```ruby
+filter {
+  # Parse JSON structured log from .NET or Python API
+  if [container][name] =~ /coderz-(dotnet|web)-api/ {
+    json {
+      source => "message"
+      target => "parsed"
+    }
+
+    # Promote fields to top level
+    mutate {
+      rename => {
+        "[parsed][client][ip]"                       => "client.ip"
+        "[parsed][http][method]"                     => "http.method"
+        "[parsed][http][url][path]"                  => "http.url.path"
+        "[parsed][http][url][query]"                 => "http.url.query"
+        "[parsed][http][response][status_code]"      => "http.response.status_code"
+        "[parsed][duration_ms]"                      => "duration_ms"
+        "[parsed][error][type]"                      => "error.type"
+        "[parsed][error][message]"                   => "error.message"
+        "[parsed][error][location]"                  => "error.location"
+        "[parsed][error][stack_trace]"               => "error.stack_trace"
+        "[parsed][service][name]"                    => "service.name"
+        "[parsed][db][query]"                        => "db.query"
+        "[parsed][db][duration_ms]"                  => "db.duration_ms"
+      }
+    }
+
+    # Add GeoIP info from client IP
+    geoip {
+      source => "client.ip"
+      target => "geoip"
+    }
+
+    # Tag slow requests
+    if [duration_ms] and [duration_ms] > 1000 {
+      mutate { add_tag => ["slow_request"] }
+    }
+
+    # Tag failed requests
+    if [http.response.status_code] and [http.response.status_code] >= 500 {
+      mutate { add_tag => ["server_error"] }
+    }
+
+    if [http.response.status_code] and [http.response.status_code] >= 400 and [http.response.status_code] < 500 {
+      mutate { add_tag => ["client_error"] }
+    }
+
+    # Drop health check noise
+    if [http.url.path] == "/health" or [http.url.path] == "/metrics" {
+      drop { }
+    }
+  }
+}
+```
+
+## Searching API Logs in Kibana
+
+Once logs are flowing, use these searches in Kibana (Discover → `logstash-*`):
+
+```kql
+# All failed API requests
+http.response.status_code >= 500
+
+# All requests from a specific IP
+client.ip: "192.168.1.50"
+
+# Slow requests (over 1 second)
+duration_ms > 1000
+
+# Failed requests with query params
+http.response.status_code >= 400 and http.url.query: *
+
+# Find where a specific error is occurring
+error.type: "NullReferenceException"
+
+# Requests to a specific endpoint that failed
+http.url.path: "/api/orders" and http.response.status_code >= 400
+
+# Slow database queries
+db.duration_ms > 500
+
+# All requests in the last hour that had errors, sorted by duration
+http.response.status_code >= 400
+```
+
+## Kibana Dashboard for API Monitoring
+
+Build a **API Health Dashboard** in Kibana with these panels:
+
+| Panel Type | Metric | Config |
+|---|---|---|
+| **Metric** | Total requests (last 1h) | Count of documents |
+| **Metric** | Error rate % | `status >= 500` / total × 100 |
+| **Metric** | Avg duration | Avg of `duration_ms` |
+| **Bar chart** | Requests by status code | Terms on `http.response.status_code` |
+| **Line chart** | Requests per minute | Date histogram on `@timestamp` |
+| **Data table** | Top 10 client IPs | Terms on `client.ip` |
+| **Data table** | Top 10 slowest endpoints | Terms on `http.url.path`, max `duration_ms` |
+| **Data table** | Recent errors | Filter `status >= 400`, sort by time |
+| **Metric** | Top error type | Terms on `error.type` |
+
+## Setting Up Kibana Alerts
+
+Kibana can send email/webhook alerts when error rates spike:
+
+1. Go to **Stack Management → Rules**
+2. Create rule: **Elasticsearch query**
+3. Query: `{ "query": { "range": { "http.response.status_code": { "gte": 500 } } } }`
+4. Condition: `count > 10` in last 5 minutes
+5. Action: Send email or webhook
+
+<Tip>
+  Use the `tags` field (`slow_request`, `server_error`, `client_error`) added by Logstash to quickly filter logs without writing complex status code queries.
+</Tip>

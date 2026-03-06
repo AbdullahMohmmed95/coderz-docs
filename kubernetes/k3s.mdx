@@ -1,0 +1,132 @@
+---
+title: "Kubernetes (k3s)"
+description: "Lightweight Kubernetes cluster for running containerized workloads with full observability."
+---
+
+# Kubernetes — k3s
+
+**Version:** k3s v1.34.4+k3s1
+**Kubeconfig:** `/root/.kube/config`
+
+k3s is a **lightweight Kubernetes distribution** developed by Rancher. It packages all Kubernetes components into a single binary (~70MB) — perfect for running a production-grade Kubernetes cluster on a single server without the overhead of full k8s.
+
+## Why k3s?
+
+| Feature | k3s | Full Kubernetes |
+|---|---|---|
+| Binary size | ~70MB | Multiple large binaries |
+| RAM usage | ~512MB | ~2GB+ |
+| Install time | ~1 minute | 30+ minutes |
+| Complexity | Low | High |
+| Production-ready | Yes | Yes |
+| Cloud-native compatible | Yes | Yes |
+
+## Cluster Info
+
+```bash
+# Check cluster status
+kubectl cluster-info
+
+# Check all nodes
+kubectl get nodes -o wide
+
+# Check all pods across all namespaces
+kubectl get pods -A
+```
+
+## Namespaces
+
+| Namespace | Contents |
+|---|---|
+| `kube-system` | k3s system components, kube-state-metrics |
+| `coderz` | Coderz application workloads |
+
+## Deployed Workloads
+
+### coderz-web (in `coderz` namespace)
+
+A sample Nginx web application running with 2 replicas:
+
+```bash
+kubectl get deployments -n coderz
+kubectl get pods -n coderz
+kubectl get services -n coderz
+```
+
+### kube-state-metrics (in `kube-system`)
+
+Exposes Kubernetes object state as Prometheus metrics:
+- Pod status (Running, Pending, Failed, CrashLoopBackOff)
+- Node status (Ready, NotReady)
+- Deployment replica counts (desired vs available)
+- ReplicaSet and StatefulSet status
+
+**ClusterIP:** `10.43.126.54:8080`
+
+## Prometheus Integration
+
+Prometheus scrapes the k3s cluster:
+
+| Target | What It Collects |
+|---|---|
+| k3s API server `:6443` | API server health, request rates |
+| kube-state-metrics `:8080` | Pod/node/deployment state |
+| Node Exporter `:9100` | Host metrics for each node |
+| cAdvisor `:8080` | Container metrics for k8s pods |
+
+A Prometheus ServiceAccount with a long-lived token is stored at:
+`/opt/coderz/configs/prometheus/secrets/k3s-token`
+
+## Kubernetes Dashboard in Grafana
+
+The **Kubernetes Overview** dashboard shows:
+- Node count and status
+- Pod count (by namespace, by status)
+- Deployment desired vs available replicas
+- Container restart counts
+- Resource usage per pod
+
+## Common kubectl Commands
+
+```bash
+# Deploy a new application
+kubectl apply -f deployment.yaml
+
+# Scale a deployment
+kubectl scale deployment coderz-web --replicas=3 -n coderz
+
+# Check pod logs
+kubectl logs -f deployment/coderz-web -n coderz
+
+# Exec into a pod
+kubectl exec -it <pod-name> -n coderz -- /bin/sh
+
+# Check resource usage
+kubectl top pods -n coderz
+kubectl top nodes
+
+# Describe a pod (for debugging)
+kubectl describe pod <pod-name> -n coderz
+
+# Delete and redeploy
+kubectl rollout restart deployment/coderz-web -n coderz
+```
+
+## Prefect k8s Health Flow
+
+Prefect automatically checks k3s health every 15 minutes:
+- All nodes must be in `Ready` state
+- All pods in `coderz` namespace must be `Running`
+- No pods in `CrashLoopBackOff` or `OOMKilled`
+
+If any check fails → email alert is sent.
+
+## Uninstall k3s
+
+```bash
+/usr/local/bin/k3s-uninstall.sh
+```
+
+<Warning>
+  This will destroy the entire Kubernetes cluster and all workloads. Only run this if you intend to completely remove k3s from the server.
+</Warning>
