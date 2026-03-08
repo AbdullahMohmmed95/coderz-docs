@@ -24,28 +24,79 @@ Nagios provides **active health monitoring** for the server and all stack servic
 | Swap Usage | < 20% free | < 10% free | 5 min |
 | Running Processes | > 400 | > 600 | 5 min |
 
-### HTTP Services
+### Web / Reverse Proxy
 
 | Service | Port | Path | Interval |
 |---|---|---|---|
-| Nginx Landing Page | 80 | `/` | 1 min |
+| Nginx HTTP | 80 | `/` | 1 min |
+| Nginx HTTPS | 443 | `/` | 1 min |
+
+### Monitoring Stack
+
+| Service | Port | Path | Interval |
+|---|---|---|---|
 | Grafana | 3000 | `/login` | 1 min |
 | Prometheus | 9090 | `/-/healthy` | 1 min |
-| .NET API | 5050 | `/api/health` | 1 min |
-| WebApp (8888) | 8888 | `/api/health` | 1 min |
+| Node Exporter | 9100 | `/metrics` | 2 min |
+| cAdvisor | 8080 | `/healthz` | 2 min |
+| Nagios (self) | 8089 | `/nagios/` | 2 min |
+
+### APIs
+
+| Service | Port | Path | Interval |
+|---|---|---|---|
+| .NET API health | 5050 | `/api/health` | 1 min |
+| .NET API items | 5050 | `/api/items` | 2 min |
+| WebApp API | 8888 | `/api/health` | 1 min |
+
+### Logging Stack
+
+| Service | Port | Path / Type | Interval |
+|---|---|---|---|
 | Kibana | 5601 | `/api/status` | 2 min |
+| Elasticsearch | 9200 | `/_cluster/health` | 2 min |
+| Loki | 3100 | `/loki/api/v1/status/buildinfo` | 2 min |
+| Logstash Beats | 5044 | TCP | 2 min |
+| Logstash TCP | 5000 | TCP | 2 min |
+
+### Orchestration & OTel
+
+| Service | Port | Type | Interval |
+|---|---|---|---|
 | Prefect UI | 4200 | `/api/health` | 2 min |
+| OTel gRPC | 4317 | TCP | 2 min |
+| OTel HTTP | 4318 | TCP | 2 min |
+
+### Database
+
+| Service | Port | Type | Interval |
+|---|---|---|---|
 | pgAdmin | 5080 | `/` | 5 min |
+| PostgreSQL | 5433 | TCP | 2 min |
+| Redis | 6379 | TCP | 2 min |
+| Elasticsearch Transport | 9300 | TCP | 5 min |
+
+### Load Testing
+
+| Service | Port | Path | Interval |
+|---|---|---|---|
 | k6 Runner | 9000 | `/health` | 5 min |
 
-### TCP Port Checks
+### APISIX Gateway (Kubernetes NodePort)
 
-| Service | Port | Interval |
-|---|---|---|
-| PostgreSQL | 5433 | 2 min |
-| Elasticsearch | 9200 | 2 min |
-| Loki | 3100 | 2 min |
-| Redis | 6379 | 2 min |
+| Service | Port | Path | Interval |
+|---|---|---|---|
+| APISIX Gateway | 30080 | `/` | 1 min |
+| APISIX Admin API | 30180 | `/apisix/admin/routes` | 2 min |
+| APISIX Dashboard | 30900 | `/` | 2 min |
+| APISIX Prometheus Metrics | 30091 | `/apisix/prometheus/metrics` | 2 min |
+| Redis Exporter | 30121 | `/metrics` | 2 min |
+
+### Documentation
+
+| Service | Port | Path | Interval |
+|---|---|---|---|
+| Mintlify Docs | 3333 | `/` | 5 min |
 
 ## How It Works
 
