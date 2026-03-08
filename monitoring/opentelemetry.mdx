@@ -1,0 +1,269 @@
+---
+title: "OpenTelemetry"
+description: "Distributed tracing, metrics, and structured logs from the .NET API — collected, processed, and forwarded by the OTel Collector."
+---
+
+# OpenTelemetry
+
+**OTel Collector gRPC:** `http://109.199.120.120:4317`
+**OTel Collector HTTP:** `http://109.199.120.120:4318`
+**Config:** `/opt/coderz/configs/otel-collector/config.yml`
+**Kibana Traces Index:** `coderz-otel-traces*`
+**Kibana Logs Index:** `coderz-otel-logs*`
+
+OpenTelemetry is the **observability standard** the Coderz Stack uses to collect traces, metrics, and structured logs from the .NET API in a vendor-neutral way. Instead of each service sending data directly to Grafana or Elasticsearch, all telemetry flows through a single **OTel Collector** that routes it to the right backend.
+
+---
+
+## Why OpenTelemetry?
+
+| Without OTel | With OTel |
+|---|---|
+| Each service hardcodes its monitoring backend | Services emit to a standard OTLP endpoint — backends are swappable |
+| Logs, metrics, and traces are in separate, unlinked systems | Trace IDs link logs → traces → metrics for the same request |
+| Adding a new backend requires code changes in every service | Add a new exporter in `config.yml` — zero service code changes |
+| Vendor lock-in (Datadog, New Relic, etc.) | 100% open standard, works with any OTLP-compatible backend |
+
+In short: OTel lets you **instrument once, export anywhere**.
+
+---
+
+## How It Works
+
+```
+.NET API (coderz-dotnet-api)
+  │
+  │  OTLP/gRPC  (port 4317)
+  ▼
+OTel Collector  (otel/opentelemetry-collector-contrib)
+  │
+  ├── Traces  ──►  Elasticsearch  (index: coderz-otel-traces)
+  │                    └── Kibana  [OTel Traces data view]
+  │
+  ├── Logs    ──►  Elasticsearch  (index: coderz-otel-logs)
+  │                    └── Kibana  [OTel Logs data view]
+  │
+  └── Metrics ──►  Prometheus  (remote_write /api/v1/write)
+                       └── Grafana  [.NET API Full Stack dashboard]
+```
+
+The collector runs as a Docker container (`coderz-otel-collector`) and is the **only** component that knows about the storage backends. The .NET API just sends to `http://otel-collector:4317` and the collector handles the rest.
+
+---
+
+## The Three Pillars
+
+### 1. Traces
+
+A **trace** follows a single request end-to-end across all the components it touches. Each step (HTTP handler → database query → cache lookup) becomes a **span** within the trace.
+
+In the .NET API, the following are automatically traced:
+- Every incoming HTTP request (path, method, status code, duration)
+- Every outgoing HTTP client call
+- Every Entity Framework / PostgreSQL query (with the SQL statement)
+
+Traces are stored in Elasticsearch (`coderz-otel-traces`) and visible in Kibana under the **OTel Traces** data view.
+
+**Example: what a trace tells you**
+> A `GET /api/items` request took 320 ms total.
+> → 5 ms: route matching
+> → 2 ms: Redis cache miss check
+> → 310 ms: `SELECT * FROM items WHERE ...` on PostgreSQL
+> → 3 ms: JSON serialization
+
+That breakdown is impossible to get from a single metric or log line — traces give you the full picture.
+
+---
+
+### 2. Metrics
+
+OTel metrics from the .NET API are pushed to **Prometheus** via `remote_write`. This means they appear in PromQL and all Grafana dashboards alongside node-exporter and cAdvisor data.
+
+Automatically collected .NET metrics:
+
+| Metric | Source | What It Shows |
+|---|---|---|
+| `http_server_request_duration_seconds` | ASP.NET Core instrumentation | Request latency histogram |
+| `http_server_active_requests` | ASP.NET Core instrumentation | In-flight requests |
+| `dotnet_gc_collections_total` | Runtime instrumentation | Garbage collection frequency |
+| `dotnet_gc_heap_size_bytes` | Runtime instrumentation | Managed heap usage |
+| `dotnet_threadpool_threads_count` | Runtime instrumentation | Thread pool health |
+| `http_client_request_duration_seconds` | HttpClient instrumentation | Outbound call latency |
+
+These appear in the **.NET API Full Stack** Grafana dashboard.
+
+---
+
+### 3. Logs
+
+OTel structured logs from the .NET API are sent to Elasticsearch (`coderz-otel-logs`). They carry the same **trace ID** and **span ID** as the traces, so you can pivot from a slow trace directly to the logs emitted during that request.
+
+Log fields exported:
+- `TraceId`, `SpanId` — link to the trace in Kibana
+- `SeverityText` — log level (INFO, WARN, ERROR)
+- `Body` — the formatted log message
+- `deployment.environment` — always `production` (injected by the collector processor)
+
+> These are **in addition to** the existing Filebeat log pipeline. The OTel log path gives you trace-correlated logs; Filebeat gives you all container stdout.
+
+---
+
+## Collector Configuration
+
+**File:** `/opt/coderz/configs/otel-collector/config.yml`
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317   # .NET API connects here
+      http:
+        endpoint: 0.0.0.0:4318   # alternative HTTP/JSON endpoint
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512          # buffer before flushing to exporters
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: production
+        action: upsert            # tag every signal with the environment
+
+exporters:
+  elasticsearch:
+    endpoints: [http://elasticsearch:9200]
+    traces_index: coderz-otel-traces
+    logs_index: coderz-otel-logs
+
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+
+service:
+  pipelines:
+    traces:   { receivers: [otlp], processors: [resource, batch], exporters: [elasticsearch] }
+    logs:     { receivers: [otlp], processors: [resource, batch], exporters: [elasticsearch] }
+    metrics:  { receivers: [otlp], processors: [resource, batch], exporters: [prometheusremotewrite] }
+```
+
+### Adding a New Exporter
+
+To also send traces to Jaeger (for example), add to `config.yml` and restart the collector — **no changes needed in the .NET API**:
+
+```yaml
+exporters:
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      exporters: [elasticsearch, jaeger]   # just add it here
+```
+
+```bash
+docker compose restart otel-collector
+```
+
+---
+
+## .NET API Integration
+
+**File:** `/opt/coderz/configs/dotnet-api/Program.cs`
+
+The .NET API uses the official `OpenTelemetry.NET` SDK with three instrumentation packages:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()    // HTTP request spans
+        .AddHttpClientInstrumentation()    // outbound call spans
+        .AddEntityFrameworkCoreInstrumentation(opts =>
+            opts.SetDbStatementForText = true)  // SQL spans with statement
+        .AddOtlpExporter(opts =>
+            opts.Endpoint = new Uri("http://otel-collector:4317")))
+
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddRuntimeInstrumentation()       // GC, thread pool, heap
+        .AddOtlpExporter(...));
+
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.IncludeFormattedMessage = true;
+    logging.IncludeScopes = true;
+    logging.AddOtlpExporter(...);          // structured logs with trace IDs
+});
+```
+
+Endpoints filtered from tracing (to reduce noise):
+- `/metrics` — Prometheus scrape endpoint
+- `/health` — health check
+- `/api/health` — API health check
+
+---
+
+## Viewing Telemetry
+
+### Traces & Logs in Kibana
+
+1. Open Kibana: http://109.199.120.120:5601
+2. Go to **Discover**
+3. Select the **OTel Traces** data view (`coderz-otel-traces*`) to browse request spans
+4. Select the **OTel Logs** data view (`coderz-otel-logs*`) to browse structured logs
+5. Filter by `TraceId` to correlate logs with a specific trace
+
+### Metrics in Grafana
+
+1. Open Grafana: http://109.199.120.120:3000
+2. Open the **.NET API Full Stack** dashboard
+3. All panels under "Runtime" and "HTTP" sections use OTel-sourced metrics
+
+---
+
+## Troubleshooting
+
+### Collector not receiving data
+
+```bash
+# Check the collector is running
+docker ps | grep otel-collector
+
+# Check collector logs for errors
+docker logs coderz-otel-collector --tail=50
+
+# Verify the .NET API can reach the collector
+docker exec coderz-dotnet-api curl -s http://otel-collector:4317 || echo "port open"
+```
+
+### No traces in Kibana
+
+```bash
+# Check Elasticsearch received the index
+curl http://109.199.120.120:9200/_cat/indices?v | grep otel
+
+# Check collector is exporting to ES successfully
+docker logs coderz-otel-collector 2>&1 | grep -i "error\|export"
+```
+
+### No OTel metrics in Prometheus
+
+```bash
+# Verify remote_write is enabled in prometheus.yml
+grep remote_write /opt/coderz/configs/prometheus/prometheus.yml
+
+# Check Prometheus remote_write ingestion
+curl -s http://109.199.120.120:9090/api/v1/query?query=dotnet_gc_collections_total | jq .
+```
+
+### Restart the collector
+
+```bash
+cd /opt/coderz
+docker compose restart otel-collector
+```

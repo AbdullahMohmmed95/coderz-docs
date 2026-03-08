@@ -23,7 +23,7 @@
   "navigation": [
     {
       "group": "Overview",
-      "pages": ["introduction", "architecture", "cost-savings", "quickstart", "Abdullah"]
+      "pages": ["introduction", "architecture", "cost-savings", "quickstart", "Abdullah", "faq"]
     },
     {
       "group": "Monitoring",
@@ -31,7 +31,8 @@
         "monitoring/grafana",
         "monitoring/prometheus",
         "monitoring/node-exporter",
-        "monitoring/cadvisor"
+        "monitoring/cadvisor",
+        "monitoring/opentelemetry"
       ]
     },
     {
@@ -76,6 +77,9 @@
       "pages": ["infrastructure/nginx", "infrastructure/email", "infrastructure/backups"]
     }
   ],
+  "search": {
+    "prompt": "Search Coderz Stack docs..."
+  },
   "footerSocials": {
     "github": "https://github.com/AbdullahMohmmed95/coderz-docs"
   }
