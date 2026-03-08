@@ -32,7 +32,8 @@
         "monitoring/prometheus",
         "monitoring/node-exporter",
         "monitoring/cadvisor",
-        "monitoring/opentelemetry"
+        "monitoring/opentelemetry",
+        "monitoring/nagios"
       ]
     },
     {

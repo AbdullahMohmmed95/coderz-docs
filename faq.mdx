@@ -1,0 +1,431 @@
+---
+title: "FAQ"
+description: "Frequently asked questions about the Coderz Stack — setup, services, access, troubleshooting, and more."
+---
+
+# Frequently Asked Questions
+
+<Info>
+  Can't find your answer here? Check the relevant service page in the sidebar or open the docs search with **Ctrl+K** / **⌘K**.
+</Info>
+
+## General
+
+<AccordionGroup>
+  <Accordion title="What is the Coderz Stack?">
+    The Coderz Stack is a fully self-hosted, production-ready DevOps infrastructure platform running on a single server (`109.199.120.120`). It bundles monitoring, logging, orchestration, API management, database, load testing, and Kubernetes — all managed via Docker Compose.
+  </Accordion>
+
+  <Accordion title="Where is everything installed?">
+    All stack files live under `/opt/coderz/`:
+    - `docker-compose.yml` — main service definitions
+    - `configs/` — per-service configuration files
+    - `/opt/mintlify-docs/` — this documentation site
+  </Accordion>
+
+  <Accordion title="How do I start or stop the entire stack?">
+    ```bash
+    cd /opt/coderz
+
+    # Start all services
+    docker compose up -d
+
+    # Stop all services
+    docker compose down
+
+    # Restart a single service (e.g. grafana)
+    docker compose restart grafana
+    ```
+  </Accordion>
+
+  <Accordion title="How do I check if all services are healthy?">
+    ```bash
+    cd /opt/coderz
+    docker compose ps
+    ```
+    All containers should show `running` or `healthy`. If a container shows `restarting`, check its logs:
+    ```bash
+    docker compose logs -f <service-name>
+    ```
+  </Accordion>
+
+  <Accordion title="How do I update a service to a newer image?">
+    ```bash
+    cd /opt/coderz
+    docker compose pull <service-name>
+    docker compose up -d <service-name>
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Access & Credentials
+
+<AccordionGroup>
+  <Accordion title="What are the default credentials for each service?">
+    | Service | URL | Username | Password |
+    |---|---|---|---|
+    | Grafana | http://109.199.120.120:3000 | admin | coderz123 |
+    | pgAdmin | http://109.199.120.120:5080 | admin@coderz.dev | coderz123 |
+    | Kibana | http://109.199.120.120:5601 | — | — |
+    | Prefect UI | http://109.199.120.120:4200 | — | — |
+    | Prometheus | http://109.199.120.120:9090 | — | — |
+    | k6 Runner | http://109.199.120.120:9000 | — | — |
+    | .NET API | http://109.199.120.120:5050 | — | — |
+    | Web API | http://109.199.120.120:8888 | — | — |
+
+    <Warning>
+      Change the default passwords in a production environment.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="How do I access the server via SSH?">
+    ```bash
+    ssh root@109.199.120.120
+    ```
+    Ensure your SSH key is authorized or use password authentication.
+  </Accordion>
+
+  <Accordion title="What are the PostgreSQL database credentials?">
+    | Field | Value |
+    |---|---|
+    | Host | `109.199.120.120` |
+    | Port | `5433` |
+    | Database | `coderapi` |
+    | Username | `coderapi` |
+    | Password | `coderapi_2024` |
+
+    Connect via pgAdmin at `http://109.199.120.120:5080` — both databases are pre-loaded.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Monitoring & Alerting
+
+<AccordionGroup>
+  <Accordion title="What monitoring dashboards are available in Grafana?">
+    - **Coderz Stack Home** — all-in-one overview (CPU, RAM, Disk, Docker top containers)
+    - **Server Overview** — Node Exporter metrics (CPU, RAM, Disk, Network, Load Average)
+    - **Docker Containers** — cAdvisor per-container metrics
+    - **.NET API Full Stack** — request metrics + PostgreSQL
+    - **Prefect Flows Overview** — flow completions, failures, and live logs
+    - **Container Logs** — Loki log viewer
+    - **Alerts Status** — active alert state panels
+    - **Kubernetes (k3s) Overview** — pod/node/deployment status
+  </Accordion>
+
+  <Accordion title="What alerts are configured?">
+    | Alert | Threshold | Evaluation Window |
+    |---|---|---|
+    | High CPU Usage | > 80% | 5 minutes |
+    | High RAM Usage | > 85% | 5 minutes |
+    | High Disk Usage | > 90% | 5 minutes |
+    | Low Container Count | < 6 containers running | 2 minutes |
+
+    Alerts are sent by email to `aboodm7med1995@gmail.com` via Postfix/Gmail relay.
+  </Accordion>
+
+  <Accordion title="How do I test that email alerts are working?">
+    ```bash
+    echo "Test alert email" | mail -s "Coderz Alert Test" aboodm7med1995@gmail.com
+    ```
+    Check your inbox. If it doesn't arrive, verify Postfix status:
+    ```bash
+    systemctl status postfix
+    journalctl -u postfix -n 50
+    ```
+  </Accordion>
+
+  <Accordion title="Where are Prometheus scrape targets configured?">
+    Edit `/opt/coderz/configs/prometheus/prometheus.yml` then restart Prometheus:
+    ```bash
+    docker compose restart prometheus
+    ```
+    Prometheus scrapes: Node Exporter, cAdvisor, kube-state-metrics, k3s API server, and both APIs.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Logging
+
+<AccordionGroup>
+  <Accordion title="What are the two logging pipelines?">
+    The stack runs two parallel log pipelines:
+
+    - **Loki + Promtail** — lightweight, label-based log querying via Grafana. Best for live tailing and quick searches.
+    - **Elasticsearch + Logstash + Kibana (ELK)** — full-text search, structured analytics, and saved searches. Best for deep investigation.
+  </Accordion>
+
+  <Accordion title="How do I search logs in Kibana?">
+    1. Open `http://109.199.120.120:5601`
+    2. Go to **Discover**
+    3. Select a data view: `filebeat-*` (system/Docker logs) or `logstash-*` (processed logs)
+    4. Use KQL to filter — for example: `container.name: "coderz-dotnet-api" and log.level: "error"`
+
+    Pre-built saved searches are available: Error & Critical Logs, Docker Container Logs, Warning Logs, and more.
+  </Accordion>
+
+  <Accordion title="How do I query logs in Grafana with Loki?">
+    1. Open Grafana → **Explore**
+    2. Select **Loki** as the datasource
+    3. Use LogQL — for example:
+    ```logql
+    {container_name="coderz-dotnet-api"} |= "error"
+    ```
+    The **Container Logs** dashboard is pre-built for visual log browsing.
+  </Accordion>
+
+  <Accordion title="Logstash is not ingesting logs — what do I check?">
+    ```bash
+    docker compose logs -f logstash
+    ```
+    Common causes:
+    - Filebeat not shipping to port `5044` — check Filebeat config
+    - Elasticsearch not healthy — `docker compose ps elasticsearch`
+    - Pipeline config error — check `/opt/coderz/configs/logstash/`
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## APIs
+
+<AccordionGroup>
+  <Accordion title="What APIs are included in the stack?">
+    | API | Port | Language | Description |
+    |---|---|---|---|
+    | Web API | 8888 | Python | General-purpose REST API |
+    | .NET API | 5050 | C# / .NET | Full CRUD API with PostgreSQL backend |
+
+    Both APIs are fully monitored via Prometheus and logged via Loki and Elasticsearch.
+  </Accordion>
+
+  <Accordion title="How do I test the .NET API?">
+    ```bash
+    # Health check
+    curl http://109.199.120.120:5050/health
+
+    # List items
+    curl http://109.199.120.120:5050/api/items
+
+    # Create an item
+    curl -X POST http://109.199.120.120:5050/api/items \
+      -H "Content-Type: application/json" \
+      -d '{"name": "test-item", "description": "hello"}'
+    ```
+  </Accordion>
+
+  <Accordion title="What does the API Gateway do?">
+    The Nginx-based API Gateway (port 80) handles:
+    - **Rate limiting** — protects backend APIs from abuse
+    - **Redis caching** — caches GET responses to reduce load
+    - **Routing** — forwards requests to Web API and .NET API
+    - **SSL termination** (if configured)
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Database
+
+<AccordionGroup>
+  <Accordion title="How do I connect to PostgreSQL?">
+    Use pgAdmin at `http://109.199.120.120:5080` — both databases are pre-configured.
+
+    Or connect via CLI:
+    ```bash
+    docker exec -it coderz-db psql -U coderapi -d coderapi
+    ```
+
+    Or from the host:
+    ```bash
+    psql -h 109.199.120.120 -p 5433 -U coderapi -d coderapi
+    ```
+  </Accordion>
+
+  <Accordion title="How do I back up the PostgreSQL database?">
+    ```bash
+    docker exec coderz-db pg_dump -U coderapi coderapi > /opt/coderz/backups/coderapi_$(date +%F).sql
+    ```
+    Schedule this via a Prefect flow or a cron job for automated daily backups.
+  </Accordion>
+
+  <Accordion title="pgAdmin is not loading — what do I do?">
+    pgAdmin takes up to 3 minutes to initialize on first start. Wait and then refresh.
+
+    If it still fails:
+    ```bash
+    docker compose logs -f pgadmin
+    docker compose restart pgadmin
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Orchestration (Prefect)
+
+<AccordionGroup>
+  <Accordion title="What scheduled flows are running?">
+    | Flow | Schedule | Purpose |
+    |---|---|---|
+    | system-health-check | Every 5 min | CPU, RAM, Disk health |
+    | services-health-check | Every 10 min | Docker service health + email on failure |
+    | daily-summary-report | Daily at 06:00 UTC | Full stack summary email |
+    | threshold-alert-check | Every 15 min | Email if CPU/RAM/Disk exceeded |
+    | weekly-cleanup-report | Sunday at 02:00 UTC | Cleanup + weekly report email |
+    | k8s-health-check | Every 15 min | k3s pod/node health + email on failure |
+    | docker-restart-monitor | Every 10 min | Detect container restarts/unhealthy |
+  </Accordion>
+
+  <Accordion title="How do I trigger a flow manually?">
+    1. Open Prefect UI at `http://109.199.120.120:4200`
+    2. Go to **Deployments**
+    3. Click the deployment → **Quick Run**
+
+    Or via CLI:
+    ```bash
+    docker exec -it prefect-worker prefect deployment run <deployment-name>
+    ```
+  </Accordion>
+
+  <Accordion title="Where are the flow scripts located?">
+    All flow definitions are at:
+    ```
+    /opt/coderz/configs/prefect/flows/sample_flows.py
+    ```
+    Deployment config:
+    ```
+    /opt/coderz/configs/prefect/flows/prefect.yaml
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Kubernetes (k3s)
+
+<AccordionGroup>
+  <Accordion title="How do I check the k3s cluster status?">
+    ```bash
+    kubectl get nodes
+    kubectl get pods --all-namespaces
+    kubectl get deployments -n coderz
+    ```
+  </Accordion>
+
+  <Accordion title="What is deployed in the cluster?">
+    | Namespace | Workload | Replicas |
+    |---|---|---|
+    | coderz | coderz-web (nginx sample app) | 2 |
+    | kube-system | kube-state-metrics | 1 |
+
+    Prometheus scrapes the cluster via the k3s API server and kube-state-metrics.
+  </Accordion>
+
+  <Accordion title="How do I restart a k3s pod?">
+    ```bash
+    kubectl rollout restart deployment/coderz-web -n coderz
+    ```
+  </Accordion>
+
+  <Accordion title="How do I uninstall k3s if needed?">
+    ```bash
+    /usr/local/bin/k3s-uninstall.sh
+    ```
+    <Warning>
+      This removes the entire k3s cluster and all workloads. This action is not reversible.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Load Testing
+
+<AccordionGroup>
+  <Accordion title="How do I run a load test?">
+    Open the k6 Runner UI at `http://109.199.120.120:9000`, select a scenario, and click **Run**.
+
+    Available scenarios:
+    - **constant** — steady fixed load
+    - **rampup** — gradually increasing users
+    - **spike** — sudden traffic burst
+    - **stress** — high load for extended period
+    - **.NET API specific** — dotnet-items, dotnet-crud, dotnet-mixed, dotnet-stress
+  </Accordion>
+
+  <Accordion title="Where can I see load test results?">
+    Results appear live in the k6 Runner UI. You can also view request metrics in the **Grafana .NET API Full Stack** dashboard in real time during a test run.
+  </Accordion>
+
+  <Accordion title="Where is the k6 runner source code?">
+    ```
+    /opt/coderz/configs/k6-runner/app.py
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="A container keeps restarting — what do I do?">
+    ```bash
+    # Check which containers are unhealthy
+    docker compose ps
+
+    # View recent logs
+    docker compose logs --tail=100 <service-name>
+
+    # Restart the service
+    docker compose restart <service-name>
+    ```
+    If the issue persists, check disk space (`df -h`) and memory (`free -h`), as resource exhaustion is a common cause.
+  </Accordion>
+
+  <Accordion title="Grafana is not showing data — what do I check?">
+    1. Verify Prometheus is running: `docker compose ps prometheus`
+    2. Check Prometheus targets: `http://109.199.120.120:9090/targets` — all should be `UP`
+    3. Verify the Grafana datasource: Grafana → **Connections** → **Data Sources** → test each
+    4. Check Prometheus logs: `docker compose logs prometheus`
+  </Accordion>
+
+  <Accordion title="How do I free up disk space?">
+    ```bash
+    # Remove unused Docker images, containers, networks
+    docker system prune -f
+
+    # Remove unused volumes (careful — this deletes data)
+    docker volume prune -f
+
+    # Check disk usage by directory
+    du -sh /opt/coderz/*
+    df -h
+    ```
+  </Accordion>
+
+  <Accordion title="How do I restart the documentation server?">
+    The Mintlify docs run as a systemd service:
+    ```bash
+    systemctl restart mintlify
+    systemctl status mintlify
+
+    # View live logs
+    journalctl -u mintlify -f
+    ```
+    Docs files are at `/opt/mintlify-docs/`.
+  </Accordion>
+
+  <Accordion title="Loki healthcheck fails — is this expected?">
+    Yes. The `grafana/loki:latest` image has no shell, so CMD-SHELL healthchecks do not work. The Loki healthcheck has been removed from the Compose file. Verify Loki manually from the host:
+    ```bash
+    curl http://109.199.120.120:3100/ready
+    ```
+    Should return `ready`.
+  </Accordion>
+</AccordionGroup>

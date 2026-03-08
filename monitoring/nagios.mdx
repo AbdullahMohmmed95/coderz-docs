@@ -1,0 +1,181 @@
+---
+title: "Nagios"
+description: "Host and service health monitoring with alerting for every component in the Coderz Stack."
+---
+
+# Nagios
+
+**URL:** http://109.199.120.120:8089/nagios/
+**Credentials:** nagiosadmin / coderz123
+**Container:** `coderz-nagios`
+**Config:** `/opt/coderz/configs/nagios/`
+
+Nagios provides **active health monitoring** for the server and all stack services. Unlike Prometheus (which collects metrics passively), Nagios actively probes every endpoint every 1–5 minutes and immediately flags anything that goes DOWN or CRITICAL.
+
+## What It Monitors
+
+### System Resources
+
+| Check | Warning | Critical | Interval |
+|---|---|---|---|
+| CPU Load (1m avg) | > 5.0 | > 10.0 | 1 min |
+| Memory Usage | > 85% | > 95% | 1 min |
+| Disk Space (/) | < 20% free | < 10% free | 5 min |
+| Swap Usage | < 20% free | < 10% free | 5 min |
+| Running Processes | > 400 | > 600 | 5 min |
+
+### HTTP Services
+
+| Service | Port | Path | Interval |
+|---|---|---|---|
+| Nginx Landing Page | 80 | `/` | 1 min |
+| Grafana | 3000 | `/login` | 1 min |
+| Prometheus | 9090 | `/-/healthy` | 1 min |
+| .NET API | 5050 | `/api/health` | 1 min |
+| WebApp (8888) | 8888 | `/api/health` | 1 min |
+| Kibana | 5601 | `/api/status` | 2 min |
+| Prefect UI | 4200 | `/api/health` | 2 min |
+| pgAdmin | 5080 | `/` | 5 min |
+| k6 Runner | 9000 | `/health` | 5 min |
+
+### TCP Port Checks
+
+| Service | Port | Interval |
+|---|---|---|
+| PostgreSQL | 5433 | 2 min |
+| Elasticsearch | 9200 | 2 min |
+| Loki | 3100 | 2 min |
+| Redis | 6379 | 2 min |
+
+## How It Works
+
+```
+Nagios active probes every service
+          │
+          ▼
+   Check result: OK / WARNING / CRITICAL / UNKNOWN
+          │
+          ├── OK → green in UI, no action
+          ├── WARNING → yellow, soft alert
+          └── CRITICAL → red, hard alert + notification
+```
+
+Checks use the standard Nagios plugin set (`check_http`, `check_tcp`, `check_load`, `check_disk`, `check_swap`, `check_procs`) plus custom shell-based commands for host memory and CPU load (reading from the host `/proc` filesystem mounted inside the container).
+
+## Accessing the UI
+
+### Services Status Page
+Go to **Current Status → Services** to see all service checks at a glance.
+
+- **Green (OK)** — service is up and responding normally
+- **Yellow (WARNING)** — service is responding but threshold exceeded
+- **Red (CRITICAL)** — service is down or threshold critically exceeded
+- **Grey (UNKNOWN)** — check could not run
+
+### Hosts Page
+Go to **Current Status → Hosts** — shows `coderz-server` host status.
+
+### Tactical Overview
+The **Tactical Overview** on the Nagios home screen shows a count summary:
+- Hosts UP/DOWN
+- Services OK/WARNING/CRITICAL
+- Scheduled downtimes
+
+## Configuration Files
+
+All configuration is mounted from `/opt/coderz/configs/nagios/` into the container:
+
+| File | Purpose |
+|---|---|
+| `coderz-hosts.cfg` | Host definitions (`coderz-server`) |
+| `coderz-services.cfg` | All service check definitions |
+| `coderz-commands.cfg` | Custom check commands |
+| `cgi.cfg` | Web UI authorization (authorizes `nagiosadmin` user) |
+
+### Adding a New Service Check
+
+Edit `/opt/coderz/configs/nagios/coderz-services.cfg` and add:
+
+```nagios
+define service {
+    host_name               coderz-server
+    service_description     HTTP - My New Service
+    check_command           check_http_port!PORT!/PATH
+    check_interval          1
+    retry_interval          1
+    max_check_attempts      3
+    check_period            24x7
+    notification_interval   10
+    notification_period     24x7
+    contact_groups          admins
+}
+```
+
+Then restart Nagios:
+
+```bash
+docker compose -f /opt/coderz/docker-compose.yml restart nagios
+```
+
+### Custom Commands
+
+The `check_http_port` and `check_tcp_port` commands are defined in `coderz-commands.cfg`:
+
+```nagios
+# HTTP check on a specific port and path
+define command {
+    command_name    check_http_port
+    command_line    $USER1$/check_http -H 109.199.120.120 -p $ARG1$ -u $ARG2$ -t 10
+}
+
+# TCP port check
+define command {
+    command_name    check_tcp_port
+    command_line    $USER1$/check_tcp -H 109.199.120.120 -p $ARG1$ -t 10
+}
+```
+
+## How Host Metrics Work
+
+Nagios runs inside Docker but monitors **real host resources** by reading from the host filesystem:
+
+| Mount | Container Path | Used For |
+|---|---|---|
+| Host `/proc` | `/hostfs/proc` | CPU load, memory (`/proc/meminfo`, `/proc/loadavg`) |
+| Host `/sys` | `/hostfs/sys` | System devices |
+| Host `/` | `/hostfs/root` | Disk usage (`check_disk -p /hostfs/root`) |
+
+This avoids the need for NRPE agents on the host while still giving accurate system readings.
+
+## Docker Compose
+
+```yaml
+nagios:
+  image: jasonrivers/nagios:latest
+  container_name: coderz-nagios
+  ports:
+    - "8089:80"
+  environment:
+    - NAGIOSADMIN_USER=nagiosadmin
+    - NAGIOSADMIN_PASS=coderz123
+  volumes:
+    - ./configs/nagios:/etc/nagios4/conf.d/coderz:ro
+    - ./configs/nagios/cgi.cfg:/opt/nagios/etc/cgi.cfg:ro
+    - /proc:/hostfs/proc:ro
+    - /sys:/hostfs/sys:ro
+    - /:/hostfs/root:ro
+  networks:
+    - coderz-net
+```
+
+## Comparison with Prometheus / Grafana
+
+| | Nagios | Prometheus + Grafana |
+|---|---|---|
+| **Type** | Active probing | Passive scraping |
+| **Best for** | Up/down, reachability | Metrics, trends, performance |
+| **Alerting** | Built-in, per-check | Rule-based, threshold over time |
+| **Dashboards** | Basic status tables | Rich graphs and histograms |
+| **Latency data** | No | Yes |
+
+Use **Nagios** to know if something is **up or down**. Use **Grafana** to understand **why** it's slow or degraded.
